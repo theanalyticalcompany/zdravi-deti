@@ -1,0 +1,17 @@
+/var/
+/tools/php/
+/tools/php80/
+
+/config/config.php
+/config/config.local.php
+/.env
+/.env.*
+
+/docs/ENDORA_DEPLOYMENT.md
+/IT_ANALYZA.md
+
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.zip
