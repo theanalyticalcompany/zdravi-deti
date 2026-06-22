@@ -1,6 +1,6 @@
 document.querySelectorAll('form[data-confirm]').forEach((form) => {
     form.addEventListener('submit', (event) => {
-        const message = form.getAttribute('data-confirm') || 'Opravdu pokracovat?';
+        const message = form.getAttribute('data-confirm') || 'Opravdu pokračovat?';
         if (!window.confirm(message)) {
             event.preventDefault();
         }

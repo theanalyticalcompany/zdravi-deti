@@ -122,6 +122,13 @@ CREATE TABLE medication_administrations (
     CONSTRAINT fk_medication_administrations_medication FOREIGN KEY (medication_id) REFERENCES medications(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE symptom_records (
+    health_record_id INT UNSIGNED PRIMARY KEY,
+    symptoms TEXT NOT NULL,
+    severity VARCHAR(40) NULL,
+    CONSTRAINT fk_symptom_records_health FOREIGN KEY (health_record_id) REFERENCES health_records(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE family_invitations (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     family_id INT UNSIGNED NOT NULL,
@@ -146,4 +153,32 @@ CREATE TABLE password_resets (
     KEY idx_password_resets_user (user_id),
     KEY idx_password_resets_expires (expires_at),
     CONSTRAINT fk_password_resets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE audit_logs (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NULL,
+    family_id INT UNSIGNED NULL,
+    action VARCHAR(120) NOT NULL,
+    entity_type VARCHAR(80) NULL,
+    entity_id INT UNSIGNED NULL,
+    ip_address VARCHAR(80) NULL,
+    user_agent VARCHAR(255) NULL,
+    meta_json TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_audit_logs_user (user_id),
+    KEY idx_audit_logs_family (family_id),
+    KEY idx_audit_logs_action (action)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE rate_limits (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    rate_key CHAR(64) NOT NULL,
+    action VARCHAR(80) NOT NULL,
+    attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    first_attempt_at DATETIME NOT NULL,
+    last_attempt_at DATETIME NOT NULL,
+    blocked_until DATETIME NULL,
+    UNIQUE KEY uq_rate_limits_key_action (rate_key, action),
+    KEY idx_rate_limits_blocked (blocked_until)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

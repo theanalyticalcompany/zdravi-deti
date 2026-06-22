@@ -14,9 +14,13 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 - pozvánky rodičů e-mailem,
 - správa dětí a přístupů rodičů,
 - evidence váhy, alergií a dopočítání věku dítěte,
-- evidence teplot, podaných léků a záznamů péče,
+- evidence teplot, podaných léků, příznaků a záznamů péče,
+- rychlé zadání léku a příznaků na detailu dítěte,
 - editace a mazání zdravotních záznamů,
 - předpřipravený číselník vybraných dětských léků s dávkovací informací,
+- auditní log důležitých akcí a rate limiting pro přihlášení a obnovu hesla,
+- e-mailový transport přes lokální log, `mail()`, SMTP nebo obecné API,
+- automatický tmavý režim podle nastavení prohlížeče,
 - přehled všech dětí na hlavní stránce s grafem za posledních 72 hodin,
 - detail dítěte se souhrnem a časovou osou,
 - tiskově optimalizovaný export pro lékaře,
@@ -43,3 +47,10 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 Pro produkci použijte MySQL/MariaDB a importujte `database/schema.sql`.
 
 Podrobnější postup je v `docs/NASAZENI_A_PROVOZ.md`.
+
+## Kontroly
+
+- Syntax všech PHP souborů: `php -l app/routes.php` nebo celý strom podle GitHub Actions workflow.
+- Smoke test nad dočasnou SQLite databází: `php tests/smoke.php`.
+- Ruční scénáře pro klíčové flow jsou v `tests/SCENARIOS.md`.
+- GitHub Actions obsahují PHP kontrolu a bezpečnostní secret scan přes Gitleaks.

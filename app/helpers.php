@@ -220,6 +220,94 @@ function app_base_url(): string
     return rtrim((string)cfg('app.base_url', 'http://127.0.0.1:8080'), '/');
 }
 
+function client_ip(): string
+{
+    return substr((string)($_SERVER['REMOTE_ADDR'] ?? 'cli'), 0, 80);
+}
+
+function user_agent(): string
+{
+    return substr((string)($_SERVER['HTTP_USER_AGENT'] ?? 'cli'), 0, 255);
+}
+
+function audit_log(string $action, ?int $userId = null, ?int $familyId = null, ?string $entityType = null, ?int $entityId = null, array $meta = []): void
+{
+    try {
+        db()->prepare(
+            'INSERT INTO audit_logs (user_id, family_id, action, entity_type, entity_id, ip_address, user_agent, meta_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $userId,
+            $familyId,
+            $action,
+            $entityType,
+            $entityId,
+            client_ip(),
+            user_agent(),
+            $meta ? json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            now_sql(),
+        ]);
+    } catch (Throwable $e) {
+        error_log('Audit log failed: ' . $e->getMessage());
+    }
+}
+
+function rate_limit_key(string $action, string $subject): string
+{
+    return hash('sha256', $action . '|' . text_lower(trim($subject)) . '|' . client_ip());
+}
+
+function rate_limit_blocked_seconds(string $action, string $subject): int
+{
+    $stmt = db()->prepare('SELECT blocked_until FROM rate_limits WHERE rate_key = ? AND action = ? LIMIT 1');
+    $stmt->execute([rate_limit_key($action, $subject), $action]);
+    $blockedUntil = $stmt->fetchColumn();
+    if (!$blockedUntil) {
+        return 0;
+    }
+    $seconds = strtotime((string)$blockedUntil) - time();
+    return max(0, $seconds);
+}
+
+function rate_limit_hit(string $action, string $subject, int $maxAttempts, int $windowSeconds, int $blockSeconds): int
+{
+    $key = rate_limit_key($action, $subject);
+    $now = new DateTimeImmutable();
+    $nowSql = $now->format('Y-m-d H:i:s');
+    $stmt = db()->prepare('SELECT * FROM rate_limits WHERE rate_key = ? AND action = ? LIMIT 1');
+    $stmt->execute([$key, $action]);
+    $row = $stmt->fetch();
+
+    if ($row && !empty($row['blocked_until']) && strtotime((string)$row['blocked_until']) > time()) {
+        return max(1, strtotime((string)$row['blocked_until']) - time());
+    }
+
+    $firstAttempt = $row ? new DateTimeImmutable((string)$row['first_attempt_at']) : $now;
+    $attempts = $row ? (int)$row['attempts'] : 0;
+    if (!$row || ($now->getTimestamp() - $firstAttempt->getTimestamp()) > $windowSeconds) {
+        $firstAttempt = $now;
+        $attempts = 0;
+    }
+
+    $attempts++;
+    $blockedUntil = $attempts >= $maxAttempts ? $now->modify('+' . $blockSeconds . ' seconds')->format('Y-m-d H:i:s') : null;
+    if ($row) {
+        db()->prepare('UPDATE rate_limits SET attempts = ?, first_attempt_at = ?, last_attempt_at = ?, blocked_until = ? WHERE id = ?')
+            ->execute([$attempts, $firstAttempt->format('Y-m-d H:i:s'), $nowSql, $blockedUntil, $row['id']]);
+    } else {
+        db()->prepare('INSERT INTO rate_limits (rate_key, action, attempts, first_attempt_at, last_attempt_at, blocked_until) VALUES (?, ?, ?, ?, ?, ?)')
+            ->execute([$key, $action, $attempts, $firstAttempt->format('Y-m-d H:i:s'), $nowSql, $blockedUntil]);
+    }
+
+    return $blockedUntil ? $blockSeconds : 0;
+}
+
+function rate_limit_clear(string $action, string $subject): void
+{
+    db()->prepare('DELETE FROM rate_limits WHERE rate_key = ? AND action = ?')
+        ->execute([rate_limit_key($action, $subject), $action]);
+}
+
 function send_app_email(string $to, string $subject, string $body): void
 {
     $from = (string)cfg('mail.from', 'noreply@localhost');
@@ -234,9 +322,147 @@ function send_app_email(string $to, string $subject, string $body): void
         file_put_contents($logPath, $log, FILE_APPEND);
     }
 
-    if (cfg('mail.enabled', false) && function_exists('mail')) {
-        @mail($to, $subject, $body, implode("\r\n", $headers));
+    if (!cfg('mail.enabled', false)) {
+        return;
     }
+
+    $transport = (string)cfg('mail.transport', 'mail');
+    try {
+        if ($transport === 'smtp') {
+            smtp_send($to, $subject, $body, $from);
+        } elseif ($transport === 'api') {
+            api_send_email($to, $subject, $body, $from);
+        } elseif ($transport === 'log') {
+            return;
+        } elseif (function_exists('mail')) {
+            @mail($to, $subject, $body, implode("\r\n", $headers));
+        }
+    } catch (Throwable $e) {
+        error_log('Mail delivery failed: ' . $e->getMessage());
+        audit_log('email.delivery_failed', current_user()['id'] ?? null, null, 'email', null, [
+            'transport' => $transport,
+            'to_hash' => hash('sha256', text_lower($to)),
+        ]);
+    }
+}
+
+function smtp_send(string $to, string $subject, string $body, string $from): void
+{
+    $host = (string)cfg('mail.smtp.host', '');
+    $port = (int)cfg('mail.smtp.port', 587);
+    if ($host === '') {
+        throw new RuntimeException('SMTP host není nastaven.');
+    }
+
+    $remote = (($port === 465 || cfg('mail.smtp.encryption') === 'ssl') ? 'ssl://' : '') . $host . ':' . $port;
+    $socket = stream_socket_client($remote, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        throw new RuntimeException('SMTP spojení selhalo: ' . $errstr);
+    }
+    stream_set_timeout($socket, 20);
+
+    $read = function () use ($socket): string {
+        $response = '';
+        while (($line = fgets($socket, 515)) !== false) {
+            $response .= $line;
+            if (isset($line[3]) && $line[3] === ' ') {
+                break;
+            }
+        }
+        return $response;
+    };
+    $write = function (string $command, array $okCodes = ['250']) use ($socket, $read): string {
+        fwrite($socket, $command . "\r\n");
+        $response = $read();
+        if (!in_array(substr($response, 0, 3), $okCodes, true)) {
+            throw new RuntimeException('SMTP odpověď: ' . trim($response));
+        }
+        return $response;
+    };
+
+    $read();
+    $write('EHLO ' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+    if (cfg('mail.smtp.encryption', 'tls') === 'tls' && $port !== 465) {
+        $write('STARTTLS', ['220']);
+        stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+        $write('EHLO ' . ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+    }
+
+    $username = (string)cfg('mail.smtp.username', '');
+    $password = (string)cfg('mail.smtp.password', '');
+    if ($username !== '') {
+        $write('AUTH LOGIN', ['334']);
+        $write(base64_encode($username), ['334']);
+        $write(base64_encode($password), ['235']);
+    }
+
+    $message = build_email_message($to, $subject, $body, $from);
+    $write('MAIL FROM:<' . email_address_only($from) . '>');
+    $write('RCPT TO:<' . email_address_only($to) . '>', ['250', '251']);
+    $write('DATA', ['354']);
+    fwrite($socket, str_replace("\n.", "\n..", $message) . "\r\n.\r\n");
+    $response = $read();
+    if (substr($response, 0, 3) !== '250') {
+        throw new RuntimeException('SMTP DATA odpověď: ' . trim($response));
+    }
+    $write('QUIT', ['221']);
+    fclose($socket);
+}
+
+function api_send_email(string $to, string $subject, string $body, string $from): void
+{
+    $url = (string)cfg('mail.api.url', '');
+    if ($url === '') {
+        throw new RuntimeException('API URL pro e-mail není nastaveno.');
+    }
+    $payload = json_encode([
+        'from' => $from,
+        'to' => $to,
+        'subject' => $subject,
+        'text' => $body,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $headers = ['Content-Type: application/json'];
+    $token = (string)cfg('mail.api.token', '');
+    if ($token !== '') {
+        $headers[] = 'Authorization: Bearer ' . $token;
+    }
+    $context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => implode("\r\n", $headers),
+            'content' => $payload,
+            'timeout' => 20,
+            'ignore_errors' => true,
+        ],
+    ]);
+    $response = @file_get_contents($url, false, $context);
+    $statusLine = $http_response_header[0] ?? '';
+    if (!preg_match('/\s2\d\d\s/', $statusLine)) {
+        throw new RuntimeException('E-mail API selhalo: ' . $statusLine . ' ' . substr((string)$response, 0, 160));
+    }
+}
+
+function build_email_message(string $to, string $subject, string $body, string $from): string
+{
+    $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+    return implode("\r\n", [
+        'From: ' . $from,
+        'To: ' . $to,
+        'Subject: ' . $encodedSubject,
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        $body,
+    ]);
+}
+
+function email_address_only(string $value): string
+{
+    if (preg_match('/<([^>]+)>/', $value, $m)) {
+        return trim($m[1]);
+    }
+    return trim($value);
 }
 
 function severity(?float $temperature): string

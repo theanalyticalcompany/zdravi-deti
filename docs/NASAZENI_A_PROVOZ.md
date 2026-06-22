@@ -93,6 +93,27 @@ https://vase-domena.cz/?r=google_callback
 
 Pokud hodnoty necháte prázdné, tlačítko Google přihlášení se nezobrazí.
 
+## E-mailové doručování
+
+Aplikace vždy zapisuje odesílané zprávy do `var/mail.log`, což stačí pro lokální vývoj. Pro produkci nastavte v `config/config.php`:
+
+```php
+'mail' => [
+    'enabled' => true,
+    'transport' => 'smtp', // mail, smtp, api nebo log
+    'from' => 'Zdraví dětí <noreply@vase-domena.cz>',
+    'smtp' => [
+        'host' => 'SMTP_HOST',
+        'port' => 587,
+        'username' => 'SMTP_USER',
+        'password' => 'SMTP_PASSWORD',
+        'encryption' => 'tls',
+    ],
+],
+```
+
+Pokud poskytovatel nabízí API místo SMTP, použijte `transport => 'api'` a nastavte `mail.api.url` a `mail.api.token`. Tajné údaje patří pouze do produkčního `config/config.php`, nikdy do GitHubu.
+
 ## Export PDF
 
 Export pro lékaře je tiskově optimalizovaná HTML stránka:

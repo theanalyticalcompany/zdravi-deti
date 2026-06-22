@@ -19,6 +19,18 @@ return [
     ],
     'mail' => [
         'enabled' => false,
+        'transport' => 'mail', // log/mail/smtp/api
         'from' => 'noreply@example.cz',
+        'smtp' => [
+            'host' => '',
+            'port' => 587,
+            'username' => '',
+            'password' => '',
+            'encryption' => 'tls', // tls/ssl/none
+        ],
+        'api' => [
+            'url' => '',
+            'token' => '',
+        ],
     ],
 ];

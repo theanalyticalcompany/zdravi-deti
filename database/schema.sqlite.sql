@@ -127,6 +127,13 @@ CREATE TABLE medication_administrations (
     FOREIGN KEY (medication_id) REFERENCES medications(id)
 );
 
+CREATE TABLE symptom_records (
+    health_record_id INTEGER PRIMARY KEY,
+    symptoms TEXT NOT NULL,
+    severity TEXT NULL,
+    FOREIGN KEY (health_record_id) REFERENCES health_records(id) ON DELETE CASCADE
+);
+
 CREATE TABLE family_invitations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     family_id INTEGER NOT NULL,
@@ -152,3 +159,33 @@ CREATE TABLE password_resets (
 
 CREATE INDEX idx_password_resets_user ON password_resets(user_id);
 CREATE INDEX idx_password_resets_expires ON password_resets(expires_at);
+
+CREATE TABLE audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NULL,
+    family_id INTEGER NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NULL,
+    entity_id INTEGER NULL,
+    ip_address TEXT NULL,
+    user_agent TEXT NULL,
+    meta_json TEXT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_family ON audit_logs(family_id);
+CREATE INDEX idx_audit_logs_action ON audit_logs(action);
+
+CREATE TABLE rate_limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rate_key TEXT NOT NULL,
+    action TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    first_attempt_at TEXT NOT NULL,
+    last_attempt_at TEXT NOT NULL,
+    blocked_until TEXT NULL,
+    UNIQUE (rate_key, action)
+);
+
+CREATE INDEX idx_rate_limits_blocked ON rate_limits(blocked_until);

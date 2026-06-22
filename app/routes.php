@@ -28,6 +28,7 @@ function dispatch(): void
         case 'record_edit': page_record_edit(); break;
         case 'temperature_save': action_temperature_save(); break;
         case 'medication_record_save': action_medication_record_save(); break;
+        case 'symptom_record_save': action_symptom_record_save(); break;
         case 'care_record_save': action_care_record_save(); break;
         case 'record_delete': action_record_delete(); break;
         case 'medications': page_medications(); break;
@@ -54,17 +55,42 @@ function page_login(): void
     }
 
     if (is_post()) {
-        $email = trim($_POST['email'] ?? '');
+        $email = text_lower(trim($_POST['email'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
+        $blockedSeconds = rate_limit_blocked_seconds('login', $email);
+        if ($blockedSeconds > 0) {
+            audit_log('auth.login_rate_limited', null, null, 'user', null, ['email_hash' => hash('sha256', $email)]);
+            flash('error', 'Příliš mnoho pokusů o přihlášení. Zkuste to znovu za několik minut.');
+            render_layout('Přihlášení', function () {
+                ?>
+                <section class="auth-card">
+                    <h1>Přihlášení</h1>
+                    <form method="post" class="stack">
+                        <?= csrf_field() ?>
+                        <label>E-mail <input required type="email" name="email" autocomplete="email"></label>
+                        <label>Heslo <input required type="password" name="password" autocomplete="current-password"></label>
+                        <button class="button primary" type="submit">Přihlásit</button>
+                    </form>
+                    <p class="muted"><a href="<?= e(url('password_forgot')) ?>">Zapomenuté heslo</a></p>
+                    <p class="muted">Nemáte účet? <a href="<?= e(url('register')) ?>">Vytvořit účet</a></p>
+                </section>
+                <?php
+            });
+            return;
+        }
         $user = find_user_by_email($email);
         if ($user && $user['password_hash'] && password_verify($password, $user['password_hash'])) {
             session_regenerate_id(true);
             $_SESSION['user_id'] = (int)$user['id'];
             db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_sql(), $user['id']]);
-            ensure_family((int)$user['id'], $user['display_name']);
+            $family = ensure_family((int)$user['id'], $user['display_name']);
+            rate_limit_clear('login', $email);
+            audit_log('auth.login_success', (int)$user['id'], (int)$family['id'], 'user', (int)$user['id']);
             redirect('dashboard');
         }
-        flash('error', 'E-mail nebo heslo nesedi.');
+        rate_limit_hit('login', $email, 5, 15 * 60, 15 * 60);
+        audit_log('auth.login_failed', $user ? (int)$user['id'] : null, null, 'user', $user ? (int)$user['id'] : null, ['email_hash' => hash('sha256', $email)]);
+        flash('error', 'E-mail nebo heslo nesedí.');
     }
 
     render_layout('Přihlášení', function () {
@@ -96,8 +122,14 @@ function page_password_forgot(): void
     if (is_post()) {
         $email = text_lower(trim($_POST['email'] ?? ''));
         if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $user = find_user_by_email($email);
-            if ($user) {
+            $blockedSeconds = rate_limit_blocked_seconds('password_reset', $email);
+            $user = $blockedSeconds > 0 ? null : find_user_by_email($email);
+            if ($blockedSeconds > 0) {
+                audit_log('auth.password_reset_rate_limited', null, null, 'user', null, ['email_hash' => hash('sha256', $email)]);
+            } else {
+                rate_limit_hit('password_reset', $email, 3, 15 * 60, 30 * 60);
+            }
+            if ($user && $blockedSeconds === 0) {
                 $token = create_password_reset_token((int)$user['id']);
                 $resetUrl = app_base_url() . '/?r=password_reset&token=' . urlencode($token);
                 send_app_email(
@@ -105,6 +137,9 @@ function page_password_forgot(): void
                     'Obnova hesla v aplikaci Zdraví dětí',
                     "Dobrý den,\n\npožádali jste o obnovu hesla v aplikaci Zdraví dětí.\n\nNové heslo nastavíte zde:\n{$resetUrl}\n\nOdkaz je platný 1 hodinu a lze ho použít jen jednou.\n\nPokud jste o obnovu hesla nežádali, tento e-mail ignorujte."
                 );
+                audit_log('auth.password_reset_requested', (int)$user['id'], null, 'user', (int)$user['id']);
+            } elseif ($blockedSeconds === 0) {
+                audit_log('auth.password_reset_requested_unknown', null, null, 'user', null, ['email_hash' => hash('sha256', $email)]);
             }
         }
         flash('success', 'Pokud je e-mail registrovaný, poslali jsme na něj odkaz pro obnovu hesla.');
@@ -147,9 +182,11 @@ function page_password_reset(): void
         } elseif ($password !== $passwordAgain) {
             flash('error', 'Zadaná hesla se neshodují.');
         } elseif (consume_password_reset_token($token, $password)) {
+            audit_log('auth.password_reset_completed', (int)$reset['user_id'], null, 'user', (int)$reset['user_id']);
             flash('success', 'Heslo bylo změněno. Teď se můžete přihlásit.');
             redirect('login');
         } else {
+            audit_log('auth.password_reset_failed', null, null, 'password_reset', null);
             flash('error', 'Odkaz pro obnovu hesla už byl použit nebo vypršel.');
             redirect('password_forgot');
         }
@@ -191,11 +228,11 @@ function page_register(): void
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             flash('error', 'Zadejte platný e-mail.');
         } elseif (text_length($name) < 2) {
-            flash('error', 'Zadejte jmeno.');
+            flash('error', 'Zadejte jméno.');
         } elseif (text_length($password) < 10) {
             flash('error', 'Heslo musí mít alespoň 10 znaků.');
         } elseif (find_user_by_email($email)) {
-            flash('error', 'Ucet s timto e-mailem uz existuje.');
+            flash('error', 'Účet s tímto e-mailem už existuje.');
         } else {
             $userId = create_user($email, $name, $password);
             $invitations = mark_invitations_registered($email);
@@ -206,7 +243,8 @@ function page_register(): void
                     "Dobrý den,\n\nuživatel {$email} se zaregistroval do aplikace Zdraví dětí.\n\nPozvali jste ho do rodiny {$invitation['family_name']}. Přihlaste se do aplikace a přidejte ho do rodiny přes stránku Rodina.\n\n" . app_base_url() . '/?r=family'
                 );
             }
-            ensure_family($userId, $name);
+            $family = ensure_family($userId, $name);
+            audit_log('auth.registered', $userId, (int)$family['id'], 'user', $userId, ['invitation_count' => count($invitations)]);
             session_regenerate_id(true);
             $_SESSION['user_id'] = $userId;
             redirect('dashboard');
@@ -233,6 +271,10 @@ function page_register(): void
 
 function action_logout(): void
 {
+    $user = current_user();
+    if ($user) {
+        audit_log('auth.logout', (int)$user['id'], null, 'user', (int)$user['id']);
+    }
     session_destroy();
     redirect('login');
 }
@@ -307,6 +349,7 @@ function action_google_callback(): void
                 "Dobrý den,\n\nuživatel {$info['email']} se zaregistroval do aplikace Zdraví dětí.\n\nPozvali jste ho do rodiny {$invitation['family_name']}. Přihlaste se do aplikace a přidejte ho do rodiny přes stránku Rodina.\n\n" . app_base_url() . '/?r=family'
             );
         }
+        audit_log('auth.google_registered', $userId, null, 'user', $userId, ['invitation_count' => count($invitations)]);
     } else {
         $userId = (int)$user['id'];
         db()->prepare('UPDATE users SET google_subject_id = COALESCE(google_subject_id, ?) WHERE id = ?')->execute([$info['sub'] ?? null, $userId]);
@@ -314,7 +357,8 @@ function action_google_callback(): void
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = $userId;
-    ensure_family($userId, $info['name'] ?? 'Rodina');
+    $family = ensure_family($userId, $info['name'] ?? 'Rodina');
+    audit_log('auth.google_login_success', $userId, (int)$family['id'], 'user', $userId);
     redirect('dashboard');
 }
 
@@ -502,6 +546,7 @@ function action_child_create(): void
             $access->execute([$childId, $member['user_id']]);
         }
         db()->commit();
+        audit_log('child.created', (int)$user['id'], (int)$family['id'], 'child', $childId);
         flash('success', 'Dítě bylo přidáno.');
         redirect('child', ['id' => $childId]);
     } catch (Throwable $e) {
@@ -523,6 +568,24 @@ function normalize_child_weight($value): ?float
     return $weight;
 }
 
+function symptom_options(): array
+{
+    return [
+        'kašel',
+        'rýma',
+        'bolest v krku',
+        'bolest hlavy',
+        'bolest břicha',
+        'zvracení',
+        'průjem',
+        'vyrážka',
+        'únava',
+        'nechutenství',
+        'dušnost',
+        'jiné',
+    ];
+}
+
 function action_child_profile_save(): void
 {
     $user = require_login();
@@ -540,6 +603,7 @@ function action_child_profile_save(): void
         $allergies = trim($_POST['allergies'] ?? '');
         db()->prepare('UPDATE children SET first_name = ?, last_name = ?, date_of_birth = ?, weight_kg = ?, allergies = ?, updated_at = ? WHERE id = ? AND family_id = ?')
             ->execute([$first, $last, $dob, $weight, $allergies, now_sql(), $child['id'], $family['id']]);
+        audit_log('child.updated', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
         flash('success', 'Údaje dítěte byly uloženy.');
     } catch (InvalidArgumentException $e) {
         flash('error', $e->getMessage());
@@ -590,6 +654,51 @@ function page_child(): void
             <?php metric_card('Poslední teplota', $last ? number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C' : '-', $last ? display_datetime($last['event_at']) : '', severity($last ? (float)$last['temperature_celsius'] : null)); ?>
             <?php metric_card('Maximum za 24 h', $summary['max_24h'] ? number_format((float)$summary['max_24h'], 1, ',', ' ') . ' °C' : '-', '', severity($summary['max_24h'] ? (float)$summary['max_24h'] : null)); ?>
             <?php metric_card('Poslední lék', $summary['last_medication'] ? medication_label($summary['last_medication']) : '-', isset($summary['last_medication']['event_at']) ? display_datetime($summary['last_medication']['event_at']) : ''); ?>
+        </section>
+
+        <section class="quick-entry">
+            <form method="post" action="<?= e(url('medication_record_save')) ?>" class="panel stack">
+                <?= csrf_field() ?>
+                <div class="section-head compact">
+                    <h2>Rychle podat lék</h2>
+                </div>
+                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                <label>Lék
+                    <select required name="medication_id">
+                        <option value="">Vyberte lék</option>
+                        <?php foreach ($medications as $med): ?>
+                            <option value="<?= e($med['id']) ?>" data-info="<?= e($med['dosing_info'] ?? '') ?>" data-source="<?= e($med['source_url'] ?? '') ?>"><?= e(medication_label($med)) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <div class="medication-info" data-medication-info hidden></div>
+                <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
+                <label>Poznámka <input name="note" placeholder="Volitelné"></label>
+                <button class="button primary" type="submit">Uložit podání</button>
+            </form>
+
+            <form method="post" action="<?= e(url('symptom_record_save')) ?>" class="panel stack">
+                <?= csrf_field() ?>
+                <div class="section-head compact">
+                    <h2>Rychle zapsat příznaky</h2>
+                </div>
+                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
+                <div class="symptom-grid">
+                    <?php foreach (symptom_options() as $symptom): ?>
+                        <label class="check"><input type="checkbox" name="symptoms[]" value="<?= e($symptom) ?>"> <?= e($symptom) ?></label>
+                    <?php endforeach; ?>
+                </div>
+                <label>Závažnost
+                    <select name="severity">
+                        <option value="mild">Lehké</option>
+                        <option value="moderate">Střední</option>
+                        <option value="high">Výrazné</option>
+                    </select>
+                </label>
+                <label>Poznámka <input name="note" placeholder="Volitelné"></label>
+                <button class="button primary" type="submit">Uložit příznaky</button>
+            </form>
         </section>
 
         <section class="panel" id="child-edit">
@@ -715,16 +824,37 @@ function record_detail_label(array $record): string
                 'dosage_form' => $record['medication_dosage_form'] ?? null,
                 'strength' => $record['medication_strength'] ?? null,
             ]);
+        case 'CARE':
+            if (($record['code'] ?? '') === 'SYMPTOMS' || !empty($record['symptoms'])) {
+                return symptom_detail_label((string)($record['symptoms'] ?? ''), $record['symptom_severity'] ?? null);
+            }
+            return (string)$record['type_name'];
         default:
             return (string)$record['type_name'];
     }
 }
+
+function symptom_detail_label(string $symptoms, ?string $severity): string
+{
+    $severityLabels = [
+        'mild' => 'lehké',
+        'moderate' => 'střední',
+        'high' => 'výrazné',
+    ];
+    $label = $symptoms !== '' ? $symptoms : 'Příznaky';
+    if ($severity && isset($severityLabels[$severity])) {
+        $label .= ' (' . $severityLabels[$severity] . ')';
+    }
+    return $label;
+}
+
 function action_child_delete(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
     $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
     db()->prepare('DELETE FROM children WHERE id = ? AND family_id = ?')->execute([$child['id'], $family['id']]);
+    audit_log('child.deleted', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
     flash('success', 'Dítě a jeho záznamy byly smazány.');
     redirect('children');
 }
@@ -750,12 +880,15 @@ function action_temperature_save(): void
             }
             db()->prepare('UPDATE health_records SET event_at = ?, place = ?, note = ?, updated_at = ? WHERE id = ?')->execute([$eventAt, trim($_POST['place'] ?? ''), trim($_POST['note'] ?? ''), now_sql(), $recordId]);
             db()->prepare('UPDATE temperature_records SET temperature_celsius = ? WHERE health_record_id = ?')->execute([$value, $recordId]);
+            audit_log('record.updated', (int)$user['id'], (int)$family['id'], 'health_record', (int)$recordId, ['kind' => 'TEMPERATURE']);
         } else {
             $typeId = record_type_id((int)$family['id'], 'TEMPERATURE');
             db()->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, place, note) VALUES (?, ?, ?, ?, ?, ?)')
                 ->execute([$child['id'], $typeId, $eventAt, $user['id'], trim($_POST['place'] ?? ''), trim($_POST['note'] ?? '')]);
+            $newRecordId = (int)db()->lastInsertId();
             db()->prepare('INSERT INTO temperature_records (health_record_id, temperature_celsius) VALUES (?, ?)')
-                ->execute([db()->lastInsertId(), $value]);
+                ->execute([$newRecordId, $value]);
+            audit_log('record.created', (int)$user['id'], (int)$family['id'], 'health_record', $newRecordId, ['kind' => 'TEMPERATURE', 'child_id' => (int)$child['id']]);
         }
         db()->commit();
         flash('success', 'Teplota byla uložena.');
@@ -788,15 +921,68 @@ function action_medication_record_save(): void
             }
             db()->prepare('UPDATE health_records SET event_at = ?, note = ?, updated_at = ? WHERE id = ?')->execute([$eventAt, trim($_POST['note'] ?? ''), now_sql(), $recordId]);
             db()->prepare('UPDATE medication_administrations SET medication_id = ? WHERE health_record_id = ?')->execute([$medicationId, $recordId]);
+            audit_log('record.updated', (int)$user['id'], (int)$family['id'], 'health_record', (int)$recordId, ['kind' => 'MEDICATION', 'medication_id' => $medicationId]);
         } else {
             $typeId = record_type_id((int)$family['id'], 'MEDICATION');
             db()->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$child['id'], $typeId, $eventAt, $user['id'], trim($_POST['note'] ?? '')]);
+            $newRecordId = (int)db()->lastInsertId();
             db()->prepare('INSERT INTO medication_administrations (health_record_id, medication_id) VALUES (?, ?)')
-                ->execute([db()->lastInsertId(), $medicationId]);
+                ->execute([$newRecordId, $medicationId]);
+            audit_log('record.created', (int)$user['id'], (int)$family['id'], 'health_record', $newRecordId, ['kind' => 'MEDICATION', 'child_id' => (int)$child['id'], 'medication_id' => $medicationId]);
         }
         db()->commit();
         flash('success', 'Podání léku bylo uloženo.');
+    } catch (Throwable $e) {
+        if (db()->inTransaction()) {
+            db()->rollBack();
+        }
+        flash('error', $e->getMessage());
+    }
+    redirect('child', ['id' => $child['id']]);
+}
+
+function action_symptom_record_save(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
+    $allowed = symptom_options();
+    $symptoms = array_values(array_intersect($allowed, array_map('trim', $_POST['symptoms'] ?? [])));
+    $severity = (string)($_POST['severity'] ?? 'mild');
+    if (!in_array($severity, ['mild', 'moderate', 'high'], true)) {
+        $severity = 'mild';
+    }
+    if (!$symptoms) {
+        flash('error', 'Vyberte alespoň jeden příznak.');
+        redirect('child', ['id' => $child['id']]);
+    }
+
+    try {
+        $eventAt = db_datetime($_POST['event_at'] ?? '');
+        $recordId = $_POST['record_id'] ?? null;
+        db()->beginTransaction();
+        if ($recordId) {
+            $record = record_for_user((int)$recordId, (int)$user['id']);
+            if (!$record || ($record['code'] ?? '') !== 'SYMPTOMS') {
+                throw new RuntimeException('Záznam nelze upravit.');
+            }
+            db()->prepare('UPDATE health_records SET event_at = ?, note = ?, updated_at = ? WHERE id = ?')
+                ->execute([$eventAt, trim($_POST['note'] ?? ''), now_sql(), $recordId]);
+            db()->prepare('UPDATE symptom_records SET symptoms = ?, severity = ? WHERE health_record_id = ?')
+                ->execute([implode(', ', $symptoms), $severity, $recordId]);
+            audit_log('record.updated', (int)$user['id'], (int)$family['id'], 'health_record', (int)$recordId, ['kind' => 'SYMPTOMS']);
+        } else {
+            $typeId = record_type_id((int)$family['id'], 'SYMPTOMS');
+            db()->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$child['id'], $typeId, $eventAt, $user['id'], trim($_POST['note'] ?? '')]);
+            $newRecordId = (int)db()->lastInsertId();
+            db()->prepare('INSERT INTO symptom_records (health_record_id, symptoms, severity) VALUES (?, ?, ?)')
+                ->execute([$newRecordId, implode(', ', $symptoms), $severity]);
+            audit_log('record.created', (int)$user['id'], (int)$family['id'], 'health_record', $newRecordId, ['kind' => 'SYMPTOMS', 'child_id' => (int)$child['id']]);
+        }
+        db()->commit();
+        flash('success', 'Příznaky byly uloženy.');
     } catch (Throwable $e) {
         if (db()->inTransaction()) {
             db()->rollBack();
@@ -825,9 +1011,11 @@ function action_care_record_save(): void
             }
             db()->prepare('UPDATE health_records SET record_type_id = ?, event_at = ?, note = ?, updated_at = ? WHERE id = ?')
                 ->execute([$recordTypeId, $eventAt, trim($_POST['note'] ?? ''), now_sql(), $recordId]);
+            audit_log('record.updated', (int)$user['id'], (int)$family['id'], 'health_record', (int)$recordId, ['kind' => 'CARE']);
         } else {
             db()->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$child['id'], $recordTypeId, $eventAt, $user['id'], trim($_POST['note'] ?? '')]);
+            audit_log('record.created', (int)$user['id'], (int)$family['id'], 'health_record', (int)db()->lastInsertId(), ['kind' => 'CARE', 'child_id' => (int)$child['id']]);
         }
         flash('success', 'Záznam péče byl uložen.');
     } catch (Throwable $e) {
@@ -847,7 +1035,8 @@ function page_record_edit(): void
     $family = current_family((int)$user['id']);
     $meds = medications((int)$family['id'], false);
     $careTypes = record_types((int)$family['id'], 'CARE');
-    render_layout('Upravit záznam', function () use ($record, $meds, $careTypes) {        switch ($record['kind']) {
+    render_layout('Upravit záznam', function () use ($record, $meds, $careTypes) {
+        switch ($record['kind']) {
             case 'TEMPERATURE':
                 $action = 'temperature_save';
                 break;
@@ -855,8 +1044,9 @@ function page_record_edit(): void
                 $action = 'medication_record_save';
                 break;
             default:
-                $action = 'care_record_save';
+                $action = ($record['code'] ?? '') === 'SYMPTOMS' ? 'symptom_record_save' : 'care_record_save';
         }
+        $selectedSymptoms = array_map('trim', explode(',', (string)($record['symptoms'] ?? '')));
         ?>
         <section class="panel narrow">
             <h1>Upravit záznam</h1>
@@ -869,6 +1059,19 @@ function page_record_edit(): void
                     <label>Místo <input name="place" value="<?= e($record['place']) ?>"></label>
                 <?php elseif ($record['kind'] === 'MEDICATION'): ?>
                     <label>Lék <select required name="medication_id"><?php foreach ($meds as $med): ?><option value="<?= e($med['id']) ?>" <?= (int)$record['medication_id'] === (int)$med['id'] ? 'selected' : '' ?>><?= e($med['name']) ?></option><?php endforeach; ?></select></label>
+                <?php elseif (($record['code'] ?? '') === 'SYMPTOMS'): ?>
+                    <div class="symptom-grid">
+                        <?php foreach (symptom_options() as $symptom): ?>
+                            <label class="check"><input type="checkbox" name="symptoms[]" value="<?= e($symptom) ?>" <?= in_array($symptom, $selectedSymptoms, true) ? 'checked' : '' ?>> <?= e($symptom) ?></label>
+                        <?php endforeach; ?>
+                    </div>
+                    <label>Závažnost
+                        <select name="severity">
+                            <?php foreach (['mild' => 'Lehké', 'moderate' => 'Střední', 'high' => 'Výrazné'] as $value => $label): ?>
+                                <option value="<?= e($value) ?>" <?= ($record['symptom_severity'] ?? '') === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
                 <?php else: ?>
                     <label>Typ <select required name="record_type_id"><?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>" <?= (int)$record['record_type_id'] === (int)$type['id'] ? 'selected' : '' ?>><?= e($type['name']) ?></option><?php endforeach; ?></select></label>
                 <?php endif; ?>
@@ -890,6 +1093,7 @@ function action_record_delete(): void
         return;
     }
     db()->prepare('DELETE FROM health_records WHERE id = ?')->execute([$record['id']]);
+    audit_log('record.deleted', (int)$user['id'], (int)$record['family_id'], 'health_record', (int)$record['id'], ['kind' => $record['kind']]);
     flash('success', 'Záznam byl smazán.');
     redirect('child', ['id' => $record['child_id']]);
 }
@@ -939,6 +1143,7 @@ function action_medication_save(): void
     $name = trim($_POST['name'] ?? '');
     if ($name !== '') {
         db()->prepare('INSERT INTO medications (family_id, name) VALUES (?, ?)')->execute([$family['id'], $name]);
+        audit_log('medication.created', (int)$user['id'], (int)$family['id'], 'medication', (int)db()->lastInsertId());
         flash('success', 'Lék byl přidán.');
     }
     redirect('medications');
@@ -949,6 +1154,7 @@ function action_medication_toggle(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     db()->prepare('UPDATE medications SET is_active = 1 - is_active WHERE id = ? AND family_id = ? AND system_key IS NULL')->execute([(int)$_POST['id'], $family['id']]);
+    audit_log('medication.toggled', (int)$user['id'], (int)$family['id'], 'medication', (int)$_POST['id']);
     redirect('medications');
 }
 
@@ -991,6 +1197,7 @@ function action_care_type_save(): void
         $code = 'CARE_' . strtoupper(bin2hex(random_bytes(4)));
         db()->prepare('INSERT INTO record_types (family_id, code, name, kind, is_system) VALUES (?, ?, ?, ?, 0)')
             ->execute([$family['id'], $code, $name, 'CARE']);
+        audit_log('care_type.created', (int)$user['id'], (int)$family['id'], 'record_type', (int)db()->lastInsertId());
     }
     redirect('care_types');
 }
@@ -1000,6 +1207,7 @@ function action_care_type_toggle(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     db()->prepare('UPDATE record_types SET is_active = 0 WHERE id = ? AND family_id = ? AND is_system = 0')->execute([(int)$_POST['id'], $family['id']]);
+    audit_log('care_type.deactivated', (int)$user['id'], (int)$family['id'], 'record_type', (int)$_POST['id']);
     redirect('care_types');
 }
 
@@ -1091,6 +1299,7 @@ function action_family_save(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     db()->prepare('UPDATE families SET name = ?, updated_at = ? WHERE id = ?')->execute([trim($_POST['name'] ?? $family['name']), now_sql(), $family['id']]);
+    audit_log('family.updated', (int)$user['id'], (int)$family['id'], 'family', (int)$family['id']);
     flash('success', 'Rodina byla uložena.');
     redirect('family');
 }
@@ -1102,6 +1311,7 @@ function action_family_delete(): void
     require_owner($family);
 
     db()->prepare('DELETE FROM families WHERE id = ? AND owner_user_id = ?')->execute([$family['id'], $user['id']]);
+    audit_log('family.deleted', (int)$user['id'], (int)$family['id'], 'family', (int)$family['id']);
     flash('success', 'Rodina byla zrušena. Uživatelské účty zůstaly zachované.');
     redirect('dashboard');
 }
@@ -1123,13 +1333,15 @@ function action_member_add(): void
         send_app_email(
             $email,
             'Pozvánka do rodiny v aplikaci Zdraví dětí',
-            "Dobrý den,\n\n{$user['display_name']} vás zve do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPokud ještě nemáte účet, zaregistrujte se zde:\n{$registerUrl}\n\nPokud účet máte, přihlaste se zde:\n{$loginUrl}\n\nPo registraci dostane pozývající rodič informaci, aby vás přidal do rodiny.\n\nKód pozvánky: {$invitation['token']}"
+            "Dobrý den,\n\n{$user['display_name']} vás zve do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPokud ještě nemáte účet, zaregistrujte se zde:\n{$registerUrl}\n\nPokud účet máte, přihlaste se zde:\n{$loginUrl}\n\nPo registraci dostane pozývající rodič informaci, aby vás přidal do rodiny."
         );
+        audit_log('family.invitation_created', (int)$user['id'], (int)$family['id'], 'family_invitation', null, ['email_hash' => hash('sha256', $email)]);
         flash('success', 'Pozvánka byla odeslána e-mailem. Lokálně ji najdete také ve var/mail.log.');
         redirect('family');
     }
 
     add_user_to_family((int)$family['id'], (int)$newUser['id']);
+    audit_log('family.member_added', (int)$user['id'], (int)$family['id'], 'user', (int)$newUser['id']);
     send_app_email(
         $newUser['email'],
         'Byli jste přidáni do rodiny',
@@ -1145,7 +1357,7 @@ function action_member_remove(): void
     $family = current_family((int)$user['id']);
     $removedUserId = (int)($_POST['user_id'] ?? 0);
     if ($removedUserId === (int)$family['owner_user_id']) {
-        flash('error', 'Vlastnika rodiny nelze odebrat.');
+        flash('error', 'Vlastníka rodiny nelze odebrat.');
         redirect('family');
     }
     db()->beginTransaction();
@@ -1155,6 +1367,7 @@ function action_member_remove(): void
         db()->prepare('DELETE FROM family_members WHERE family_id = ? AND user_id = ? AND role <> ?')
             ->execute([$family['id'], $removedUserId, 'OWNER']);
         db()->commit();
+        audit_log('family.member_removed', (int)$user['id'], (int)$family['id'], 'user', $removedUserId);
         flash('success', 'Rodič byl odebrán.');
     } catch (Throwable $e) {
         db()->rollBack();
@@ -1182,6 +1395,7 @@ function action_access_save(): void
             $stmt->execute([$child['id'], $userId]);
         }
         db()->commit();
+        audit_log('child.access_updated', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
     } catch (Throwable $e) {
         db()->rollBack();
         throw $e;
@@ -1199,15 +1413,18 @@ function page_export(): void
     $fromDb = $from . ' 00:00:00';
     $toDb = $to . ' 23:59:59';
     $stmt = db()->prepare(
-        'SELECT hr.*, rt.kind, rt.name AS type_name, tr.temperature_celsius, m.name AS medication_name,
+        'SELECT hr.*, rt.kind, rt.code, rt.name AS type_name, tr.temperature_celsius, m.name AS medication_name,
                 m.dosage_form AS medication_dosage_form,
                 m.strength AS medication_strength,
-                m.dosing_info AS medication_dosing_info
+                m.dosing_info AS medication_dosing_info,
+                sr.symptoms,
+                sr.severity AS symptom_severity
          FROM health_records hr
          JOIN record_types rt ON rt.id = hr.record_type_id
          LEFT JOIN temperature_records tr ON tr.health_record_id = hr.id
          LEFT JOIN medication_administrations ma ON ma.health_record_id = hr.id
          LEFT JOIN medications m ON m.id = ma.medication_id
+         LEFT JOIN symptom_records sr ON sr.health_record_id = hr.id
          WHERE hr.child_id = ? AND hr.event_at BETWEEN ? AND ?
          ORDER BY hr.event_at'
     );

@@ -1,7 +1,8 @@
 :root {
-    color-scheme: light;
+    color-scheme: light dark;
     --bg: #f6f7f9;
     --surface: #ffffff;
+    --surface-soft: #fbfcfd;
     --ink: #17202a;
     --muted: #64707d;
     --line: #dfe5ec;
@@ -460,7 +461,7 @@ textarea {
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: .8rem;
-    background: #fbfcfd;
+    background: var(--surface-soft);
 }
 
 .stat-strip span,
@@ -496,6 +497,31 @@ textarea {
 
 .child-profile-form {
     max-width: 560px;
+}
+
+.quick-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+}
+
+.section-head.compact {
+    margin-bottom: 0;
+}
+
+.symptom-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .45rem .75rem;
+}
+
+.symptom-grid .check {
+    min-height: 34px;
+    padding: .35rem .45rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
 }
 
 .swatch {
@@ -642,6 +668,7 @@ th {
 
     .form-grid,
     .forms-3,
+    .quick-entry,
     .metrics,
     .stat-strip {
         grid-template-columns: 1fr;
@@ -658,6 +685,59 @@ th {
     .access-grid,
     .list-row {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #101418;
+        --surface: #171d22;
+        --surface-soft: #1d242a;
+        --ink: #eef3f7;
+        --muted: #a7b2bd;
+        --line: #303942;
+        --primary: #4fb3a4;
+        --primary-ink: #071312;
+        --ok: #62c08d;
+        --warning: #f1b44c;
+        --danger: #ff7568;
+        --med: #8ea2ff;
+        --shadow: 0 16px 42px rgba(0, 0, 0, .28);
+    }
+
+    .topbar {
+        background: rgba(16, 20, 24, .92);
+    }
+
+    input,
+    select,
+    textarea,
+    .segmented a {
+        background: #11171c;
+        color: var(--ink);
+    }
+
+    .flash {
+        background: rgba(98, 192, 141, .12);
+        border-color: rgba(98, 192, 141, .35);
+    }
+
+    .flash.error {
+        background: rgba(255, 117, 104, .13);
+        border-color: rgba(255, 117, 104, .35);
+    }
+
+    .grid {
+        stroke: #2b343d;
+    }
+
+    .axis {
+        stroke: #6f7a85;
+    }
+
+    .temp-dot,
+    .med-dot {
+        stroke: #11171c;
     }
 }
 
