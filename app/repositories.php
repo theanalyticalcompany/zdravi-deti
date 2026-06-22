@@ -39,6 +39,19 @@ function ensure_runtime_schema(): void
                 FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
             )'
         );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS password_resets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TEXT NOT NULL,
+                used_at TEXT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets(expires_at)');
         return;
     }
 
@@ -78,6 +91,19 @@ function ensure_runtime_schema(): void
                 CONSTRAINT fk_family_invitations_inviter FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS password_resets (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNSIGNED NOT NULL,
+                token_hash CHAR(64) NOT NULL UNIQUE,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME NOT NULL,
+                used_at DATETIME NULL,
+                KEY idx_password_resets_user (user_id),
+                KEY idx_password_resets_expires (expires_at),
+                CONSTRAINT fk_password_resets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
     }
 }
 
@@ -101,6 +127,65 @@ function create_user(string $email, string $name, ?string $password, ?string $go
     $stmt = db()->prepare('INSERT INTO users (email, display_name, password_hash, google_subject_id) VALUES (?, ?, ?, ?)');
     $stmt->execute([text_lower(trim($email)), trim($name), $hash, $googleSubject]);
     return (int)db()->lastInsertId();
+}
+
+function create_password_reset_token(int $userId): string
+{
+    $rawToken = bin2hex(random_bytes(32));
+    $tokenHash = hash('sha256', $rawToken);
+    $expiresAt = (new DateTimeImmutable('+1 hour'))->format('Y-m-d H:i:s');
+
+    db()->prepare('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL')
+        ->execute([now_sql(), $userId]);
+    db()->prepare('DELETE FROM password_resets WHERE expires_at < ?')
+        ->execute([now_sql()]);
+    db()->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)')
+        ->execute([$userId, $tokenHash, $expiresAt]);
+
+    return $rawToken;
+}
+
+function password_reset_by_token(string $token): ?array
+{
+    if ($token === '' || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return null;
+    }
+    $stmt = db()->prepare(
+        'SELECT pr.*, u.email, u.display_name
+         FROM password_resets pr
+         JOIN users u ON u.id = pr.user_id
+         WHERE pr.token_hash = ? AND pr.used_at IS NULL AND pr.expires_at >= ? AND u.is_active = 1
+         LIMIT 1'
+    );
+    $stmt->execute([hash('sha256', $token), now_sql()]);
+    return $stmt->fetch() ?: null;
+}
+
+function consume_password_reset_token(string $token, string $password): bool
+{
+    $reset = password_reset_by_token($token);
+    if (!$reset) {
+        return false;
+    }
+
+    db()->beginTransaction();
+    try {
+        $usedAt = now_sql();
+        $stmt = db()->prepare('UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL');
+        $stmt->execute([$usedAt, $reset['id']]);
+        if ($stmt->rowCount() !== 1) {
+            db()->rollBack();
+            return false;
+        }
+
+        db()->prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+            ->execute([password_hash($password, PASSWORD_DEFAULT), $usedAt, $reset['user_id']]);
+        db()->commit();
+        return true;
+    } catch (Throwable $e) {
+        db()->rollBack();
+        throw $e;
+    }
 }
 
 function current_family(int $userId): ?array

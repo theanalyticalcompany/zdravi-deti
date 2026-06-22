@@ -14,6 +14,8 @@ function dispatch(): void
     switch ($route) {
         case 'login': page_login(); break;
         case 'register': page_register(); break;
+        case 'password_forgot': page_password_forgot(); break;
+        case 'password_reset': page_password_reset(); break;
         case 'logout': action_logout(); break;
         case 'google_start': action_google_start(); break;
         case 'google_callback': action_google_callback(); break;
@@ -78,7 +80,99 @@ function page_login(): void
             <?php if (cfg('google.client_id')): ?>
                 <a class="button wide" href="<?= e(url('google_start')) ?>">Přihlásit přes Google</a>
             <?php endif; ?>
+            <p class="muted"><a href="<?= e(url('password_forgot')) ?>">Zapomenuté heslo</a></p>
             <p class="muted">Nemáte účet? <a href="<?= e(url('register')) ?>">Vytvořit účet</a></p>
+        </section>
+        <?php
+    });
+}
+
+function page_password_forgot(): void
+{
+    if (current_user()) {
+        redirect('dashboard');
+    }
+
+    if (is_post()) {
+        $email = text_lower(trim($_POST['email'] ?? ''));
+        if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $user = find_user_by_email($email);
+            if ($user) {
+                $token = create_password_reset_token((int)$user['id']);
+                $resetUrl = app_base_url() . '/?r=password_reset&token=' . urlencode($token);
+                send_app_email(
+                    $user['email'],
+                    'Obnova hesla v aplikaci Zdraví dětí',
+                    "Dobrý den,\n\npožádali jste o obnovu hesla v aplikaci Zdraví dětí.\n\nNové heslo nastavíte zde:\n{$resetUrl}\n\nOdkaz je platný 1 hodinu a lze ho použít jen jednou.\n\nPokud jste o obnovu hesla nežádali, tento e-mail ignorujte."
+                );
+            }
+        }
+        flash('success', 'Pokud je e-mail registrovaný, poslali jsme na něj odkaz pro obnovu hesla.');
+        redirect('login');
+    }
+
+    render_layout('Obnova hesla', function () {
+        ?>
+        <section class="auth-card">
+            <h1>Obnova hesla</h1>
+            <p class="muted">Zadejte e-mail k účtu. Pokud ho v aplikaci známe, pošleme na něj odkaz pro nastavení nového hesla.</p>
+            <form method="post" class="stack">
+                <?= csrf_field() ?>
+                <label>E-mail <input required type="email" name="email" autocomplete="email"></label>
+                <button class="button primary" type="submit">Poslat odkaz</button>
+            </form>
+            <p class="muted"><a href="<?= e(url('login')) ?>">Zpět na přihlášení</a></p>
+        </section>
+        <?php
+    });
+}
+
+function page_password_reset(): void
+{
+    if (current_user()) {
+        redirect('dashboard');
+    }
+
+    $token = (string)($_GET['token'] ?? $_POST['token'] ?? '');
+    $reset = password_reset_by_token($token);
+
+    if (is_post()) {
+        $password = (string)($_POST['password'] ?? '');
+        $passwordAgain = (string)($_POST['password_again'] ?? '');
+        if (!$reset) {
+            flash('error', 'Odkaz pro obnovu hesla je neplatný nebo vypršel.');
+            redirect('password_forgot');
+        } elseif (text_length($password) < 10) {
+            flash('error', 'Heslo musí mít alespoň 10 znaků.');
+        } elseif ($password !== $passwordAgain) {
+            flash('error', 'Zadaná hesla se neshodují.');
+        } elseif (consume_password_reset_token($token, $password)) {
+            flash('success', 'Heslo bylo změněno. Teď se můžete přihlásit.');
+            redirect('login');
+        } else {
+            flash('error', 'Odkaz pro obnovu hesla už byl použit nebo vypršel.');
+            redirect('password_forgot');
+        }
+        $reset = password_reset_by_token($token);
+    }
+
+    render_layout('Nastavení nového hesla', function () use ($token, $reset) {
+        ?>
+        <section class="auth-card">
+            <h1>Nové heslo</h1>
+            <?php if (!$reset): ?>
+                <p class="muted">Odkaz pro obnovu hesla je neplatný nebo vypršel.</p>
+                <a class="button primary wide" href="<?= e(url('password_forgot')) ?>">Poslat nový odkaz</a>
+            <?php else: ?>
+                <p class="muted">Nastavte nové heslo k účtu <?= e($reset['email']) ?>.</p>
+                <form method="post" class="stack">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="token" value="<?= e($token) ?>">
+                    <label>Nové heslo <input required type="password" name="password" minlength="10" autocomplete="new-password"></label>
+                    <label>Nové heslo znovu <input required type="password" name="password_again" minlength="10" autocomplete="new-password"></label>
+                    <button class="button primary" type="submit">Uložit nové heslo</button>
+                </form>
+            <?php endif; ?>
         </section>
         <?php
     });

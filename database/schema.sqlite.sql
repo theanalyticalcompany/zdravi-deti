@@ -139,3 +139,16 @@ CREATE TABLE family_invitations (
     FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     FOREIGN KEY (invited_by_user_id) REFERENCES users(id)
 );
+
+CREATE TABLE password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL,
+    used_at TEXT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_password_resets_user ON password_resets(user_id);
+CREATE INDEX idx_password_resets_expires ON password_resets(expires_at);
