@@ -59,7 +59,8 @@ assert_true((int)$family['owner_user_id'] === $userId, 'owner family was created
 
 $resetToken = create_password_reset_token($userId);
 assert_true(password_reset_by_token($resetToken) !== null, 'password reset token is readable');
-assert_true(consume_password_reset_token($resetToken, 'nove-bezpecne-heslo-123'), 'password reset token is consumed');
+$newPassword = str_repeat('a', 10);
+assert_true(consume_password_reset_token($resetToken, $newPassword), 'password reset token is consumed');
 assert_true(password_reset_by_token($resetToken) === null, 'password reset token cannot be reused');
 
 $blocked = 0;
