@@ -1,13 +1,14 @@
 CREATE TABLE users (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(190) NOT NULL UNIQUE,
+    email VARCHAR(190) NOT NULL,
     display_name VARCHAR(190) NOT NULL,
     password_hash VARCHAR(255) NULL,
     google_subject_id VARCHAR(190) NULL UNIQUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_login_at DATETIME NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    KEY idx_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE families (
@@ -181,4 +182,18 @@ CREATE TABLE rate_limits (
     blocked_until DATETIME NULL,
     UNIQUE KEY uq_rate_limits_key_action (rate_key, action),
     KEY idx_rate_limits_blocked (blocked_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE user_sessions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id INT UNSIGNED NOT NULL,
+    session_id_hash CHAR(64) NOT NULL UNIQUE,
+    ip_address VARCHAR(80) NULL,
+    user_agent VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME NULL,
+    KEY idx_user_sessions_user (user_id),
+    KEY idx_user_sessions_revoked (revoked_at),
+    CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

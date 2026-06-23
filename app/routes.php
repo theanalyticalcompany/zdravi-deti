@@ -19,6 +19,9 @@ function dispatch(): void
         case 'logout': action_logout(); break;
         case 'google_start': action_google_start(); break;
         case 'google_callback': action_google_callback(); break;
+        case 'devices': page_devices(); break;
+        case 'device_revoke': action_device_revoke(); break;
+        case 'devices_revoke_others': action_devices_revoke_others(); break;
         case 'dashboard': page_dashboard(); break;
         case 'children': page_children(); break;
         case 'child': page_child(); break;
@@ -79,10 +82,11 @@ function page_login(): void
             });
             return;
         }
-        $user = find_user_by_email($email);
+        $user = find_password_user_by_email($email);
         if ($user && $user['password_hash'] && password_verify($password, $user['password_hash'])) {
             session_regenerate_id(true);
             $_SESSION['user_id'] = (int)$user['id'];
+            remember_user_session((int)$user['id']);
             db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_sql(), $user['id']]);
             $family = ensure_family((int)$user['id'], $user['display_name']);
             rate_limit_clear('login', $email);
@@ -124,7 +128,7 @@ function page_password_forgot(): void
         $email = text_lower(trim($_POST['email'] ?? ''));
         if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $blockedSeconds = rate_limit_blocked_seconds('password_reset', $email);
-            $user = $blockedSeconds > 0 ? null : find_user_by_email($email);
+            $user = $blockedSeconds > 0 ? null : find_password_user_by_email($email);
             if ($blockedSeconds > 0) {
                 audit_log('auth.password_reset_rate_limited', null, null, 'user', null, ['email_hash' => hash('sha256', $email)]);
             } else {
@@ -232,7 +236,7 @@ function page_register(): void
             flash('error', 'Zadejte jméno.');
         } elseif (text_length($password) < 10) {
             flash('error', 'Heslo musí mít alespoň 10 znaků.');
-        } elseif (find_user_by_email($email)) {
+        } elseif (find_password_user_by_email($email)) {
             flash('error', 'Účet s tímto e-mailem už existuje.');
         } else {
             $userId = create_user($email, $name, $password);
@@ -248,6 +252,7 @@ function page_register(): void
             audit_log('auth.registered', $userId, (int)$family['id'], 'user', $userId, ['invitation_count' => count($invitations)]);
             session_regenerate_id(true);
             $_SESSION['user_id'] = $userId;
+            remember_user_session($userId);
             redirect('dashboard');
         }
     }
@@ -274,6 +279,7 @@ function action_logout(): void
 {
     $user = current_user();
     if ($user) {
+        revoke_current_user_session((int)$user['id']);
         audit_log('auth.logout', (int)$user['id'], null, 'user', (int)$user['id']);
     }
     session_destroy();
@@ -334,14 +340,15 @@ function action_google_callback(): void
     ]);
     $info = json_decode((string)curl_exec($ch), true);
     curl_close($ch);
-    if (($info['aud'] ?? '') !== cfg('google.client_id') || empty($info['email'])) {
+    $googleSubject = (string)($info['sub'] ?? '');
+    if (($info['aud'] ?? '') !== cfg('google.client_id') || empty($info['email']) || $googleSubject === '') {
         flash('error', 'Google identitu se nepodařilo ověřit.');
         redirect('login');
     }
 
-    $user = find_user_by_email($info['email']);
+    $user = find_user_by_google_subject($googleSubject);
     if (!$user) {
-        $userId = create_user($info['email'], $info['name'] ?? $info['email'], null, $info['sub'] ?? null);
+        $userId = create_user($info['email'], $info['name'] ?? $info['email'], null, $googleSubject);
         $invitations = mark_invitations_registered($info['email']);
         foreach ($invitations as $invitation) {
             send_app_email(
@@ -353,14 +360,96 @@ function action_google_callback(): void
         audit_log('auth.google_registered', $userId, null, 'user', $userId, ['invitation_count' => count($invitations)]);
     } else {
         $userId = (int)$user['id'];
-        db()->prepare('UPDATE users SET google_subject_id = COALESCE(google_subject_id, ?) WHERE id = ?')->execute([$info['sub'] ?? null, $userId]);
     }
 
     session_regenerate_id(true);
     $_SESSION['user_id'] = $userId;
+    remember_user_session($userId);
+    db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_sql(), $userId]);
     $family = ensure_family($userId, $info['name'] ?? 'Rodina');
     audit_log('auth.google_login_success', $userId, (int)$family['id'], 'user', $userId);
     redirect('dashboard');
+}
+
+function page_devices(): void
+{
+    $user = require_login();
+    $sessions = active_user_sessions((int)$user['id']);
+    $currentHash = current_session_hash();
+
+    render_layout('Aktivní zařízení', function () use ($sessions, $currentHash) {
+        ?>
+        <div class="page-head">
+            <div>
+                <h1>Aktivní zařízení</h1>
+                <p class="muted">Přehled prohlížečů a zařízení, kde je váš účet přihlášený.</p>
+            </div>
+            <?php if (count($sessions) > 1): ?>
+                <form method="post" action="<?= e(url('devices_revoke_others')) ?>" data-confirm="Odhlásit všechna ostatní zařízení?">
+                    <?= csrf_field() ?>
+                    <button class="button danger" type="submit">Odhlásit ostatní</button>
+                </form>
+            <?php endif; ?>
+        </div>
+
+        <section class="panel">
+            <?php if (!$sessions): ?>
+                <div class="empty">Aktuálně není evidované žádné aktivní zařízení.</div>
+            <?php else: ?>
+                <div class="list">
+                    <?php foreach ($sessions as $session):
+                        $isCurrent = hash_equals((string)$session['session_id_hash'], $currentHash);
+                        ?>
+                        <div class="list-row device-row">
+                            <span>
+                                <strong><?= e(device_label((string)$session['user_agent'])) ?></strong>
+                                <small>
+                                    <?= $isCurrent ? 'Toto zařízení · ' : '' ?>
+                                    IP <?= e($session['ip_address'] ?: '-') ?>
+                                </small>
+                            </span>
+                            <small>
+                                Naposledy <?= e(display_datetime($session['last_seen_at'])) ?><br>
+                                Vytvořeno <?= e(display_datetime($session['created_at'])) ?>
+                            </small>
+                            <?php if ($isCurrent): ?>
+                                <span class="badge">Aktuální</span>
+                            <?php else: ?>
+                                <form method="post" action="<?= e(url('device_revoke')) ?>" data-confirm="Odhlásit toto zařízení?">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="session_id" value="<?= e($session['id']) ?>">
+                                    <button class="button tiny danger" type="submit">Odhlásit</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+        <?php
+    }, 'devices');
+}
+
+function action_device_revoke(): void
+{
+    $user = require_login();
+    $session = revoke_user_session((int)$user['id'], (int)($_POST['session_id'] ?? 0));
+    if (!$session) {
+        flash('error', 'Zařízení se nepodařilo najít nebo jde o aktuální přihlášení.');
+        redirect('devices');
+    }
+    audit_log('auth.device_revoked', (int)$user['id'], null, 'user_session', (int)$session['id']);
+    flash('success', 'Zařízení bylo odhlášeno.');
+    redirect('devices');
+}
+
+function action_devices_revoke_others(): void
+{
+    $user = require_login();
+    $count = revoke_other_user_sessions((int)$user['id']);
+    audit_log('auth.devices_revoked_others', (int)$user['id'], null, 'user_session', null, ['count' => $count]);
+    flash('success', 'Ostatní zařízení byla odhlášena.');
+    redirect('devices');
 }
 
 function page_dashboard(): void

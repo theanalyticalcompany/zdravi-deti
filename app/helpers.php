@@ -100,7 +100,19 @@ function current_user(): ?array
     if (empty($_SESSION['user_id'])) {
         return null;
     }
-    return find_user((int)$_SESSION['user_id']);
+    $user = find_user((int)$_SESSION['user_id']);
+    if (!$user) {
+        return null;
+    }
+    if (user_session_revoked((int)$user['id'])) {
+        $_SESSION = [];
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+        return null;
+    }
+    touch_user_session((int)$user['id']);
+    return $user;
 }
 
 function require_login(): array
@@ -228,6 +240,56 @@ function client_ip(): string
 function user_agent(): string
 {
     return substr((string)($_SERVER['HTTP_USER_AGENT'] ?? 'cli'), 0, 255);
+}
+
+function current_session_hash(): string
+{
+    if (session_id() === '') {
+        if (empty($_SESSION['cli_session_id'])) {
+            $_SESSION['cli_session_id'] = bin2hex(random_bytes(16));
+        }
+        return hash('sha256', 'cli|' . $_SESSION['cli_session_id']);
+    }
+    return hash('sha256', session_id());
+}
+
+function device_label(string $agent): string
+{
+    $agent = trim($agent);
+    if ($agent === '' || $agent === 'cli') {
+        return 'Neznámé zařízení';
+    }
+
+    $browser = 'Prohlížeč';
+    foreach ([
+        'Edg' => 'Microsoft Edge',
+        'OPR' => 'Opera',
+        'Chrome' => 'Chrome',
+        'Firefox' => 'Firefox',
+        'Safari' => 'Safari',
+    ] as $needle => $label) {
+        if (stripos($agent, $needle) !== false) {
+            $browser = $label;
+            break;
+        }
+    }
+
+    $platform = 'zařízení';
+    foreach ([
+        'iPhone' => 'iPhone',
+        'iPad' => 'iPad',
+        'Android' => 'Android',
+        'Windows' => 'Windows',
+        'Mac OS' => 'Mac',
+        'Linux' => 'Linux',
+    ] as $needle => $label) {
+        if (stripos($agent, $needle) !== false) {
+            $platform = $label;
+            break;
+        }
+    }
+
+    return $browser . ' na ' . $platform;
 }
 
 function audit_log(string $action, ?int $userId = null, ?int $familyId = null, ?string $entityType = null, ?int $entityId = null, array $meta = []): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 function ensure_runtime_schema(): void
 {
     $driver = db()->getAttribute(PDO::ATTR_DRIVER_NAME);
+    ensure_users_email_allows_duplicates($driver);
     if ($driver === 'sqlite') {
         $columns = array_column(db()->query('PRAGMA table_info(children)')->fetchAll(), 'name');
         if (!in_array('weight_kg', $columns, true)) {
@@ -82,6 +83,21 @@ function ensure_runtime_schema(): void
             )'
         );
         db()->exec('CREATE INDEX IF NOT EXISTS idx_rate_limits_blocked ON rate_limits(blocked_until)');
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                session_id_hash TEXT NOT NULL UNIQUE,
+                ip_address TEXT NULL,
+                user_agent TEXT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                revoked_at TEXT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_user_sessions_revoked ON user_sessions(revoked_at)');
         db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INTEGER PRIMARY KEY,
@@ -174,6 +190,21 @@ function ensure_runtime_schema(): void
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         db()->exec(
+            'CREATE TABLE IF NOT EXISTS user_sessions (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNSIGNED NOT NULL,
+                session_id_hash CHAR(64) NOT NULL UNIQUE,
+                ip_address VARCHAR(80) NULL,
+                user_agent VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                revoked_at DATETIME NULL,
+                KEY idx_user_sessions_user (user_id),
+                KEY idx_user_sessions_revoked (revoked_at),
+                CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INT UNSIGNED PRIMARY KEY,
                 symptoms TEXT NOT NULL,
@@ -182,6 +213,74 @@ function ensure_runtime_schema(): void
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         ensure_special_record_types();
+    }
+}
+
+function ensure_users_email_allows_duplicates(string $driver): void
+{
+    if ($driver === 'sqlite') {
+        $indexes = db()->query('PRAGMA index_list(users)')->fetchAll();
+        $emailUnique = false;
+        foreach ($indexes as $index) {
+            if ((int)($index['unique'] ?? 0) !== 1) {
+                continue;
+            }
+            $name = (string)$index['name'];
+            $columns = db()->query('PRAGMA index_info(' . db()->quote($name) . ')')->fetchAll();
+            if (count($columns) === 1 && ($columns[0]['name'] ?? '') === 'email') {
+                $emailUnique = true;
+                break;
+            }
+        }
+        if ($emailUnique) {
+            db()->exec('PRAGMA foreign_keys = OFF');
+            db()->beginTransaction();
+            try {
+                db()->exec(
+                    'CREATE TABLE users_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        password_hash TEXT NULL,
+                        google_subject_id TEXT NULL UNIQUE,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_login_at TEXT NULL,
+                        is_active INTEGER NOT NULL DEFAULT 1
+                    )'
+                );
+                db()->exec(
+                    'INSERT INTO users_new (id, email, display_name, password_hash, google_subject_id, created_at, updated_at, last_login_at, is_active)
+                     SELECT id, email, display_name, password_hash, google_subject_id, created_at, updated_at, last_login_at, is_active FROM users'
+                );
+                db()->exec('DROP TABLE users');
+                db()->exec('ALTER TABLE users_new RENAME TO users');
+                db()->exec('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+                db()->commit();
+            } catch (Throwable $e) {
+                db()->rollBack();
+                db()->exec('PRAGMA foreign_keys = ON');
+                throw $e;
+            }
+            db()->exec('PRAGMA foreign_keys = ON');
+        } else {
+            db()->exec('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+        }
+        return;
+    }
+
+    if ($driver === 'mysql') {
+        $stmt = db()->query("SHOW INDEX FROM users WHERE Column_name = 'email' AND Non_unique = 0");
+        foreach ($stmt->fetchAll() as $index) {
+            $keyName = (string)$index['Key_name'];
+            if ($keyName !== 'PRIMARY') {
+                db()->exec('ALTER TABLE users DROP INDEX `' . str_replace('`', '``', $keyName) . '`');
+            }
+        }
+        $stmt = db()->query("SHOW INDEX FROM users WHERE Key_name = 'idx_users_email'");
+        if (!$stmt->fetch()) {
+            db()->exec('CREATE INDEX idx_users_email ON users(email)');
+        }
     }
 }
 
@@ -194,8 +293,32 @@ function find_user(int $id): ?array
 
 function find_user_by_email(string $email): ?array
 {
-    $stmt = db()->prepare('SELECT * FROM users WHERE email = ? AND is_active = 1');
+    $stmt = db()->prepare(
+        'SELECT * FROM users
+         WHERE email = ? AND is_active = 1
+         ORDER BY google_subject_id IS NOT NULL DESC, last_login_at DESC, id DESC
+         LIMIT 1'
+    );
     $stmt->execute([text_lower(trim($email))]);
+    return $stmt->fetch() ?: null;
+}
+
+function find_password_user_by_email(string $email): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT * FROM users
+         WHERE email = ? AND password_hash IS NOT NULL AND is_active = 1
+         ORDER BY last_login_at DESC, id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([text_lower(trim($email))]);
+    return $stmt->fetch() ?: null;
+}
+
+function find_user_by_google_subject(string $googleSubject): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM users WHERE google_subject_id = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([$googleSubject]);
     return $stmt->fetch() ?: null;
 }
 
@@ -205,6 +328,91 @@ function create_user(string $email, string $name, ?string $password, ?string $go
     $stmt = db()->prepare('INSERT INTO users (email, display_name, password_hash, google_subject_id) VALUES (?, ?, ?, ?)');
     $stmt->execute([text_lower(trim($email)), trim($name), $hash, $googleSubject]);
     return (int)db()->lastInsertId();
+}
+
+function remember_user_session(int $userId): void
+{
+    $sessionHash = current_session_hash();
+    $stmt = db()->prepare('SELECT id FROM user_sessions WHERE session_id_hash = ? LIMIT 1');
+    $stmt->execute([$sessionHash]);
+    $sessionId = $stmt->fetchColumn();
+    if ($sessionId) {
+        db()->prepare(
+            'UPDATE user_sessions
+             SET user_id = ?, ip_address = ?, user_agent = ?, last_seen_at = ?, revoked_at = NULL
+             WHERE id = ?'
+        )->execute([$userId, client_ip(), user_agent(), now_sql(), $sessionId]);
+    } else {
+        db()->prepare(
+            'INSERT INTO user_sessions (user_id, session_id_hash, ip_address, user_agent, created_at, last_seen_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$userId, $sessionHash, client_ip(), user_agent(), now_sql(), now_sql()]);
+    }
+    $_SESSION['session_seen_at'] = time();
+}
+
+function touch_user_session(int $userId): void
+{
+    if (!empty($_SESSION['session_seen_at']) && time() - (int)$_SESSION['session_seen_at'] < 60) {
+        return;
+    }
+    remember_user_session($userId);
+}
+
+function user_session_revoked(int $userId): bool
+{
+    $stmt = db()->prepare(
+        'SELECT revoked_at FROM user_sessions
+         WHERE user_id = ? AND session_id_hash = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$userId, current_session_hash()]);
+    $revokedAt = $stmt->fetchColumn();
+    return $revokedAt !== false && $revokedAt !== null && $revokedAt !== '';
+}
+
+function active_user_sessions(int $userId): array
+{
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM user_sessions
+         WHERE user_id = ? AND revoked_at IS NULL
+         ORDER BY last_seen_at DESC, created_at DESC'
+    );
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+function revoke_user_session(int $userId, int $sessionId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM user_sessions WHERE id = ? AND user_id = ? AND revoked_at IS NULL LIMIT 1');
+    $stmt->execute([$sessionId, $userId]);
+    $session = $stmt->fetch() ?: null;
+    if (!$session || hash_equals((string)$session['session_id_hash'], current_session_hash())) {
+        return null;
+    }
+    db()->prepare('UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ?')
+        ->execute([now_sql(), $sessionId, $userId]);
+    return $session;
+}
+
+function revoke_other_user_sessions(int $userId): int
+{
+    $stmt = db()->prepare(
+        'UPDATE user_sessions
+         SET revoked_at = ?
+         WHERE user_id = ? AND session_id_hash <> ? AND revoked_at IS NULL'
+    );
+    $stmt->execute([now_sql(), $userId, current_session_hash()]);
+    return $stmt->rowCount();
+}
+
+function revoke_current_user_session(int $userId): void
+{
+    db()->prepare(
+        'UPDATE user_sessions SET revoked_at = ?
+         WHERE user_id = ? AND session_id_hash = ? AND revoked_at IS NULL'
+    )->execute([now_sql(), $userId, current_session_hash()]);
 }
 
 function create_password_reset_token(int $userId): string

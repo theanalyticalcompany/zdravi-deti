@@ -1,6 +1,6 @@
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
     display_name TEXT NOT NULL,
     password_hash TEXT NULL,
     google_subject_id TEXT NULL UNIQUE,
@@ -9,6 +9,8 @@ CREATE TABLE users (
     last_login_at TEXT NULL,
     is_active INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE INDEX idx_users_email ON users(email);
 
 CREATE TABLE families (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,3 +191,18 @@ CREATE TABLE rate_limits (
 );
 
 CREATE INDEX idx_rate_limits_blocked ON rate_limits(blocked_until);
+
+CREATE TABLE user_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_id_hash TEXT NOT NULL UNIQUE,
+    ip_address TEXT NULL,
+    user_agent TEXT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TEXT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX idx_user_sessions_revoked ON user_sessions(revoked_at);

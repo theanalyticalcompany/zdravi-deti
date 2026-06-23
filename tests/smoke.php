@@ -54,6 +54,17 @@ function assert_true(bool $condition, string $message): void
 }
 
 $userId = create_user('rodic@example.test', 'Testovací rodič', 'bezpecne-heslo-123');
+$googleUserId = create_user('rodic@example.test', 'Google rodič', null, 'google-subject-1');
+assert_true($googleUserId !== $userId, 'google account can coexist with password account for same email');
+assert_true((int)find_password_user_by_email('rodic@example.test')['id'] === $userId, 'password login keeps password account');
+assert_true((int)find_user_by_google_subject('google-subject-1')['id'] === $googleUserId, 'google login uses google subject account');
+
+$_SESSION['user_id'] = $userId;
+remember_user_session($userId);
+$sessions = active_user_sessions($userId);
+assert_true(count($sessions) === 1, 'active session is tracked');
+assert_true(!user_session_revoked($userId), 'current session is active');
+
 $family = ensure_family($userId, 'Testovací rodič');
 assert_true((int)$family['owner_user_id'] === $userId, 'owner family was created');
 

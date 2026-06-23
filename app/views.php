@@ -33,6 +33,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
             <a class="<?= $active === 'medications' ? 'active' : '' ?>" href="<?= e(url('medications')) ?>">Léčiva</a>
             <a class="<?= $active === 'care_types' ? 'active' : '' ?>" href="<?= e(url('care_types')) ?>">Typy péče</a>
             <a class="<?= $active === 'family' ? 'active' : '' ?>" href="<?= e(url('family')) ?>">Rodina</a>
+            <a class="<?= $active === 'devices' ? 'active' : '' ?>" href="<?= e(url('devices')) ?>">Zařízení</a>
         </nav>
         <div class="account">
             <span><?= e($family['name'] ?? $user['display_name']) ?></span>

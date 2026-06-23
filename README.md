@@ -9,6 +9,7 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 - registrace a přihlášení e-mailem a heslem,
 - obnova zapomenutého hesla přes jednorázový e-mailový odkaz,
 - volitelné Google OAuth přihlášení,
+- správa aktivních zařízení a odhlášení ostatních sessions,
 - automatické založení rodiny při registraci,
 - role vlastníka rodiny a dalších rodičů,
 - pozvánky rodičů e-mailem,
