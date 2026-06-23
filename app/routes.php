@@ -389,9 +389,9 @@ function page_dashboard(): void
 
         <?php if (!$overview): ?>
             <section class="panel">
-                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat na stránce Děti.</div>
+                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat ve správě dětí.</div>
                 <div class="panel-actions">
-                    <a class="button primary" href="<?= e(url('children')) ?>">Přejít na děti</a>
+                    <a class="button primary" href="<?= e(url('children')) ?>">Přejít na správu dětí</a>
                 </div>
             </section>
         <?php else: ?>
@@ -464,28 +464,44 @@ function page_children(): void
     $family = ensure_family((int)$user['id'], $user['display_name']);
     $children = children_for_user((int)$user['id']);
 
-    render_layout('Děti', function () use ($children, $family) {
+    render_layout('Správa dětí', function () use ($children, $family) {
         ?>
         <div class="page-head">
             <div>
-                <h1>Děti</h1>
-                <p class="muted">Správa dětí, jejich základních údajů a přístupů.</p>
+                <h1>Správa dětí</h1>
+                <p class="muted">Základní údaje, váha, alergie a přístup k úpravám profilu.</p>
             </div>
         </div>
-        <section class="grid cards">
-            <?php foreach ($children as $child):
-                $summary = child_summary((int)$child['id']);
-                $last = $summary['last_temperature'];
-                $tone = severity($last ? (float)$last['temperature_celsius'] : null);
-                ?>
-                <a class="child-card <?= e($tone) ?>" href="<?= e(url('child', ['id' => $child['id']])) ?>">
-                    <span><?= e($child['first_name'] . ' ' . $child['last_name']) ?></span>
-                    <strong><?= $last ? e(number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C') : '-' ?></strong>
-                    <small><?= $last ? e(display_datetime($last['event_at'])) : 'Zatím bez teploty' ?></small>
-                </a>
-            <?php endforeach; ?>
+        <section class="panel">
+            <h2>Profily dětí</h2>
             <?php if (!$children): ?>
                 <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat níže.</div>
+            <?php else: ?>
+                <div class="admin-list">
+                    <?php foreach ($children as $child): ?>
+                        <div class="admin-row">
+                            <div>
+                                <strong><?= e($child['first_name'] . ' ' . $child['last_name']) ?></strong>
+                                <small>
+                                    narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
+                                    věk <?= e(child_age_label($child['date_of_birth'])) ?>
+                                </small>
+                            </div>
+                            <div>
+                                <span class="muted">Váha</span>
+                                <strong><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></strong>
+                            </div>
+                            <div>
+                                <span class="muted">Alergie</span>
+                                <strong><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></strong>
+                            </div>
+                            <div class="actions">
+                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>#child-edit">Upravit</a>
+                                <a class="button tiny" href="<?= e(url('family')) ?>">Přístupy</a>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
             <?php endif; ?>
         </section>
 
@@ -500,26 +516,6 @@ function page_children(): void
                     <label>Váha kg <input type="number" step="0.1" min="0" max="200" name="weight_kg" inputmode="decimal"></label>
                     <label class="wide-field">Alergie <textarea name="allergies" rows="2" placeholder="Například penicilin, ořechy, pyl"></textarea></label>
                     <button class="button primary" type="submit">Přidat dítě</button>
-                </form>
-            </section>
-        <?php endif; ?>
-        <?php if (false && (($family['role'] ?? '') === 'OWNER')): ?>
-            <section class="panel danger-zone">
-                <h2>Zrušit rodinu</h2>
-                <p class="muted">Zrušení rodiny smaže děti, zdravotní záznamy, číselníky a rodičovské role v této rodině. Uživatelské účty zůstanou zachované.</p>
-                <form method="post" action="<?= e(url('family_delete')) ?>" data-confirm="Opravdu zrušit celou rodinu včetně všech záznamů?">
-                    <?= csrf_field() ?>
-                    <button class="button danger" type="submit">Zrušit rodinu</button>
-                </form>
-            </section>
-        <?php endif; ?>
-        <?php if (false && (($family['role'] ?? '') === 'OWNER')): ?>
-            <section class="panel danger-zone">
-                <h2>Zrušit rodinu</h2>
-                <p class="muted">Zrušení rodiny smaže děti, zdravotní záznamy, číselníky a rodičovské role v této rodině. Uživatelské účty zůstanou zachované.</p>
-                <form method="post" action="<?= e(url('family_delete')) ?>" data-confirm="Opravdu zrušit celou rodinu včetně všech záznamů?">
-                    <?= csrf_field() ?>
-                    <button class="button danger" type="submit">Zrušit rodinu</button>
                 </form>
             </section>
         <?php endif; ?>

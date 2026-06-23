@@ -161,8 +161,7 @@ h3 {
 
 .auth-card,
 .panel,
-.metric,
-.child-card {
+.metric {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -229,33 +228,6 @@ textarea {
 
 textarea {
     resize: vertical;
-}
-
-.grid.cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 1rem;
-    margin-bottom: 1.2rem;
-}
-
-.child-card {
-    min-height: 140px;
-    padding: 1.1rem;
-    display: grid;
-    align-content: space-between;
-    color: var(--ink);
-}
-
-.child-card strong {
-    font-size: 2.2rem;
-}
-
-.child-card.warning {
-    border-color: rgba(189, 107, 0, .55);
-}
-
-.child-card.danger {
-    border-color: rgba(180, 35, 24, .55);
 }
 
 .metrics {
@@ -571,6 +543,39 @@ textarea {
     overflow-x: auto;
 }
 
+.admin-list {
+    display: grid;
+    gap: .65rem;
+    margin-top: .9rem;
+}
+
+.admin-row {
+    min-height: 68px;
+    display: grid;
+    grid-template-columns: minmax(14rem, 1.2fr) minmax(7rem, .6fr) minmax(10rem, 1fr) auto;
+    gap: .85rem;
+    align-items: center;
+    padding: .8rem .9rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+}
+
+.admin-row > div {
+    min-width: 0;
+    display: grid;
+    gap: .2rem;
+}
+
+.admin-row small,
+.admin-row .muted {
+    font-size: .88rem;
+}
+
+.admin-row strong {
+    overflow-wrap: anywhere;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
@@ -728,6 +733,7 @@ th {
     }
 
     .access-grid,
+    .admin-row,
     .list-row {
         grid-template-columns: 1fr;
     }

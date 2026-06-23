@@ -29,7 +29,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php if ($user): ?>
         <nav class="nav">
             <a class="<?= $active === 'dashboard' ? 'active' : '' ?>" href="<?= e(url('dashboard')) ?>">Přehled</a>
-            <a class="<?= $active === 'children' ? 'active' : '' ?>" href="<?= e(url('children')) ?>">Děti</a>
+            <a class="<?= $active === 'children' ? 'active' : '' ?>" href="<?= e(url('children')) ?>">Správa dětí</a>
             <a class="<?= $active === 'medications' ? 'active' : '' ?>" href="<?= e(url('medications')) ?>">Léčiva</a>
             <a class="<?= $active === 'care_types' ? 'active' : '' ?>" href="<?= e(url('care_types')) ?>">Typy péče</a>
             <a class="<?= $active === 'family' ? 'active' : '' ?>" href="<?= e(url('family')) ?>">Rodina</a>
