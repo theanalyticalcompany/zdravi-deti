@@ -651,6 +651,17 @@ function mark_invitations_registered(string $email): array
     return $items;
 }
 
+function accept_pending_invitations_for_user(int $userId, string $email): array
+{
+    $items = pending_invitations_for_email($email);
+    foreach ($items as $invitation) {
+        add_user_to_family((int)$invitation['family_id'], $userId);
+        db()->prepare('UPDATE family_invitations SET registered_at = COALESCE(registered_at, ?), accepted_at = COALESCE(accepted_at, ?) WHERE id = ?')
+            ->execute([now_sql(), now_sql(), $invitation['id']]);
+    }
+    return $items;
+}
+
 function add_user_to_family(int $familyId, int $userId): void
 {
     $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';

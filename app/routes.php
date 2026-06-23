@@ -243,15 +243,15 @@ function page_register(): void
             flash('error', 'Účet s tímto e-mailem už existuje.');
         } else {
             $userId = create_user($email, $name, $password);
-            $invitations = mark_invitations_registered($email);
+            $invitations = accept_pending_invitations_for_user($userId, $email);
             foreach ($invitations as $invitation) {
                 send_app_email(
                     $invitation['inviter_email'],
-                    'Pozvaný rodič se zaregistroval',
-                    "Dobrý den,\n\nuživatel {$email} se zaregistroval do aplikace Zdraví dětí.\n\nPozvali jste ho do rodiny {$invitation['family_name']}. Přihlaste se do aplikace a přidejte ho do rodiny přes stránku Rodina.\n\n" . app_base_url() . '/?r=family'
+                    'Pozvaný rodič byl přidán do rodiny',
+                    "Dobrý den,\n\nuživatel {$email} se zaregistroval do aplikace Zdraví dětí a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit na stránce Rodina:\n\n" . app_base_url() . '/?r=family'
                 );
             }
-            $family = ensure_family($userId, $name);
+            $family = current_family($userId) ?: ensure_family($userId, $name);
             audit_log('auth.registered', $userId, (int)$family['id'], 'user', $userId, ['invitation_count' => count($invitations)]);
             session_regenerate_id(true);
             $_SESSION['user_id'] = $userId;
@@ -352,12 +352,12 @@ function action_google_callback(): void
     $user = find_user_by_google_subject($googleSubject);
     if (!$user) {
         $userId = create_user($info['email'], $info['name'] ?? $info['email'], null, $googleSubject);
-        $invitations = mark_invitations_registered($info['email']);
+        $invitations = accept_pending_invitations_for_user($userId, $info['email']);
         foreach ($invitations as $invitation) {
             send_app_email(
                 $invitation['inviter_email'],
-                'Pozvaný rodič se zaregistroval',
-                "Dobrý den,\n\nuživatel {$info['email']} se zaregistroval do aplikace Zdraví dětí.\n\nPozvali jste ho do rodiny {$invitation['family_name']}. Přihlaste se do aplikace a přidejte ho do rodiny přes stránku Rodina.\n\n" . app_base_url() . '/?r=family'
+                'Pozvaný rodič byl přidán do rodiny',
+                "Dobrý den,\n\nuživatel {$info['email']} se přihlásil přes Google a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit na stránce Rodina:\n\n" . app_base_url() . '/?r=family'
             );
         }
         audit_log('auth.google_registered', $userId, null, 'user', $userId, ['invitation_count' => count($invitations)]);
@@ -369,7 +369,7 @@ function action_google_callback(): void
     $_SESSION['user_id'] = $userId;
     remember_user_session($userId);
     db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_sql(), $userId]);
-    $family = ensure_family($userId, $info['name'] ?? 'Rodina');
+    $family = current_family($userId) ?: ensure_family($userId, $info['name'] ?? 'Rodina');
     audit_log('auth.google_login_success', $userId, (int)$family['id'], 'user', $userId);
     redirect('dashboard');
 }
@@ -1613,7 +1613,7 @@ function action_member_add(): void
         send_app_email(
             $email,
             'Pozvánka do rodiny v aplikaci Zdraví dětí',
-            "Dobrý den,\n\n{$user['display_name']} vás zve do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPokud ještě nemáte účet, zaregistrujte se zde:\n{$registerUrl}\n\nPokud účet máte, přihlaste se zde:\n{$loginUrl}\n\nPo registraci dostane pozývající rodič informaci, aby vás přidal do rodiny."
+            "Dobrý den,\n\n{$user['display_name']} vás zve do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPokud ještě nemáte účet, zaregistrujte se zde:\n{$registerUrl}\n\nPokud účet máte nebo chcete použít Google přihlášení, přihlaste se zde:\n{$loginUrl}\n\nPo registraci nebo Google přihlášení budete automaticky přidáni do pozvané rodiny."
         );
         audit_log('family.invitation_created', (int)$user['id'], (int)$family['id'], 'family_invitation', null, ['email_hash' => hash('sha256', $email)]);
         flash('success', 'Pozvánka byla odeslána e-mailem. Lokálně ji najdete také ve var/mail.log.');

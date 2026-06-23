@@ -102,6 +102,15 @@ $pdo->prepare('INSERT INTO children (family_id, first_name, last_name, date_of_b
     ->execute([$family['id'], 'Anna', 'Testová', '2021-01-01']);
 $childId = (int)$pdo->lastInsertId();
 $pdo->prepare('INSERT INTO child_access (child_id, user_id) VALUES (?, ?)')->execute([$childId, $userId]);
+
+$invitedUserId = create_user('druhy.rodic@example.test', 'Druhý rodič', 'bezpecne-heslo-456');
+$acceptedInvitations = accept_pending_invitations_for_user($invitedUserId, 'druhy.rodic@example.test');
+assert_true(count($acceptedInvitations) === 1, 'pending invitation is accepted during registration');
+assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test') === null, 'accepted invitation is no longer pending');
+$invitedFamily = current_family($invitedUserId);
+assert_true($invitedFamily && (int)$invitedFamily['id'] === (int)$family['id'], 'invited user joins inviter family');
+assert_true(child_for_user($childId, $invitedUserId) !== null, 'invited user gets child access');
+
 $symptomTypeId = record_type_id((int)$family['id'], 'SYMPTOMS');
 $pdo->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
     ->execute([$childId, $symptomTypeId, now_sql(), $userId, 'Test']);
