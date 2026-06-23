@@ -41,6 +41,7 @@ function dispatch(): void
         case 'family_save': action_family_save(); break;
         case 'family_delete': action_family_delete(); break;
         case 'member_add': action_member_add(); break;
+        case 'invitation_cancel': action_invitation_cancel(); break;
         case 'member_remove': action_member_remove(); break;
         case 'access_save': action_access_save(); break;
         case 'export': page_export(); break;
@@ -1216,9 +1217,10 @@ function page_family(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     $members = family_members((int)$family['id']);
+    $pendingInvitations = pending_family_invitations((int)$family['id']);
     $children = children_for_user((int)$user['id']);
 
-    render_layout('Rodina', function () use ($family, $members, $children) {
+    render_layout('Rodina', function () use ($family, $members, $pendingInvitations, $children) {
         ?>
         <div class="page-head"><h1>Rodina</h1></div>
         <section class="panel">
@@ -1258,6 +1260,33 @@ function page_family(): void
                     </div>
                 <?php endforeach; ?>
             </div>
+
+            <?php if (($family['role'] ?? '') === 'OWNER' && $pendingInvitations): ?>
+                <div class="subsection">
+                    <h3>Odeslané pozvánky</h3>
+                    <div class="list">
+                        <?php foreach ($pendingInvitations as $invitation): ?>
+                            <div class="list-row invitation-row">
+                                <span>
+                                    <?= e($invitation['invited_email']) ?>
+                                    <small>
+                                        Odesláno <?= e(display_datetime($invitation['created_at'])) ?>
+                                        <?php if (!empty($invitation['registered_at'])): ?>
+                                            · uživatel se registroval
+                                        <?php endif; ?>
+                                    </small>
+                                </span>
+                                <small>Pozval <?= e($invitation['inviter_name']) ?></small>
+                                <form method="post" action="<?= e(url('invitation_cancel')) ?>" data-confirm="Zrušit tuto pozvánku?">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="invitation_id" value="<?= e($invitation['id']) ?>">
+                                    <button class="button tiny danger" type="submit">Zrušit</button>
+                                </form>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
         </section>
 
         <?php if ($family): ?>
@@ -1327,6 +1356,10 @@ function action_member_add(): void
     }
     $newUser = find_user_by_email($email);
     if (!$newUser) {
+        if (pending_family_invitation_by_email((int)$family['id'], $email)) {
+            flash('error', 'Na tento e-mail už čeká pozvánka. Pokud ji chcete poslat znovu, nejdřív ji zrušte.');
+            redirect('family');
+        }
         $invitation = create_family_invitation((int)$family['id'], (int)$user['id'], $email);
         $registerUrl = app_base_url() . '/?r=register&email=' . urlencode($email);
         $loginUrl = app_base_url() . '/?r=login';
@@ -1348,6 +1381,25 @@ function action_member_add(): void
         "Dobrý den,\n\nbyli jste přidáni do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPřihlášení:\n" . app_base_url() . '/?r=login'
     );
     flash('success', 'Rodič byl přidán do rodiny a dostal potvrzení e-mailem.');
+    redirect('family');
+}
+
+function action_invitation_cancel(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    require_owner($family);
+
+    $invitation = cancel_family_invitation((int)$family['id'], (int)($_POST['invitation_id'] ?? 0));
+    if (!$invitation) {
+        flash('error', 'Pozvánku se nepodařilo najít nebo už není aktivní.');
+        redirect('family');
+    }
+
+    audit_log('family.invitation_cancelled', (int)$user['id'], (int)$family['id'], 'family_invitation', (int)$invitation['id'], [
+        'email_hash' => hash('sha256', (string)$invitation['invited_email']),
+    ]);
+    flash('success', 'Pozvánka byla zrušena. Na stejný e-mail můžete poslat novou.');
     redirect('family');
 }
 

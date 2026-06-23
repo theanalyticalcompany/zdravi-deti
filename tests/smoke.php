@@ -57,6 +57,17 @@ $userId = create_user('rodic@example.test', 'Testovací rodič', 'bezpecne-heslo
 $family = ensure_family($userId, 'Testovací rodič');
 assert_true((int)$family['owner_user_id'] === $userId, 'owner family was created');
 
+$invitation = create_family_invitation((int)$family['id'], $userId, 'druhy.rodic@example.test');
+$pendingInvitation = pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test');
+assert_true($pendingInvitation !== null, 'pending family invitation is found by email');
+$pendingList = pending_family_invitations((int)$family['id']);
+assert_true(count($pendingList) === 1 && $pendingList[0]['invited_email'] === 'druhy.rodic@example.test', 'pending family invitation is listed');
+$cancelledInvitation = cancel_family_invitation((int)$family['id'], (int)$pendingInvitation['id']);
+assert_true($cancelledInvitation !== null, 'pending family invitation can be cancelled');
+assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test') === null, 'cancelled invitation disappears from pending list');
+$newInvitation = create_family_invitation((int)$family['id'], $userId, 'druhy.rodic@example.test');
+assert_true(($newInvitation['token'] ?? '') !== ($invitation['token'] ?? ''), 'new invitation can be created for cancelled email');
+
 $resetToken = create_password_reset_token($userId);
 assert_true(password_reset_by_token($resetToken) !== null, 'password reset token is readable');
 $newPassword = str_repeat('a', 10);

@@ -298,6 +298,45 @@ function pending_invitations_for_email(string $email): array
     return $stmt->fetchAll();
 }
 
+function pending_family_invitations(int $familyId): array
+{
+    $stmt = db()->prepare(
+        'SELECT fi.*, u.display_name AS inviter_name, u.email AS inviter_email
+         FROM family_invitations fi
+         JOIN users u ON u.id = fi.invited_by_user_id
+         WHERE fi.family_id = ? AND fi.accepted_at IS NULL
+         ORDER BY fi.created_at DESC'
+    );
+    $stmt->execute([$familyId]);
+    return $stmt->fetchAll();
+}
+
+function pending_family_invitation_by_email(int $familyId, string $email): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM family_invitations
+         WHERE family_id = ? AND invited_email = ? AND accepted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$familyId, text_lower(trim($email))]);
+    return $stmt->fetch() ?: null;
+}
+
+function cancel_family_invitation(int $familyId, int $invitationId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM family_invitations WHERE id = ? AND family_id = ? AND accepted_at IS NULL');
+    $stmt->execute([$invitationId, $familyId]);
+    $invitation = $stmt->fetch() ?: null;
+    if (!$invitation) {
+        return null;
+    }
+    db()->prepare('DELETE FROM family_invitations WHERE id = ? AND family_id = ? AND accepted_at IS NULL')
+        ->execute([$invitationId, $familyId]);
+    return $invitation;
+}
+
 function create_family_invitation(int $familyId, int $inviterUserId, string $email): array
 {
     $token = bin2hex(random_bytes(24));

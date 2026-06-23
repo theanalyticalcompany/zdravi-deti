@@ -585,6 +585,16 @@ th {
     gap: .55rem;
 }
 
+.subsection {
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+}
+
+.subsection h3 {
+    margin: 0 0 .75rem;
+}
+
 .list-row {
     min-height: 50px;
     display: grid;
@@ -603,6 +613,11 @@ th {
 
 .medication-row small {
     line-height: 1.35;
+}
+
+.invitation-row span {
+    display: grid;
+    gap: .2rem;
 }
 
 .access-grid {
