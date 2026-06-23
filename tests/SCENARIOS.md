@@ -23,6 +23,14 @@
 
 ## Záznamy dítěte
 
+1. Na hlavním přehledu u dítěte zapsat teplotu do rychlého pole a uložit.
+2. Ověřit, že aplikace zůstane na přehledu a poslední teplota se aktualizuje.
+3. Na mobilu musí být pole vidět bez otevření detailu dítěte a musí nabídnout číselnou klávesnici.
+4. Zadat teplotu s českou desetinnou čárkou, například `38,4`.
+5. Ověřit, že neplatná hodnota mimo rozsah zůstane bezpečně odmítnutá.
+
+## Detail dítěte
+
 1. Na detailu dítěte rychle uložit podání předpřipraveného léku.
 2. Ověřit zobrazení dávkovací informace a odkazu na SÚKL.
 3. Rychle uložit příznaky, upravit je a smazat.

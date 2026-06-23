@@ -482,6 +482,28 @@ textarea {
     color: var(--danger);
 }
 
+.quick-temperature-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(6.5rem, .8fr) auto;
+    gap: .65rem;
+    align-items: center;
+    padding: .75rem;
+    border: 1px solid rgba(18, 92, 99, .18);
+    border-radius: 8px;
+    background: rgba(18, 92, 99, .055);
+}
+
+.quick-temperature-form .quick-label {
+    color: var(--ink);
+    font-weight: 720;
+}
+
+.quick-temperature-form input {
+    min-height: 44px;
+    font-size: 1.1rem;
+    text-align: center;
+}
+
 .chart-heading {
     margin-top: .2rem;
 }
@@ -687,6 +709,14 @@ th {
     .metrics,
     .stat-strip {
         grid-template-columns: 1fr;
+    }
+
+    .quick-temperature-form {
+        grid-template-columns: 1fr auto;
+    }
+
+    .quick-temperature-form .quick-label {
+        grid-column: 1 / -1;
     }
 
     .child-overview-head {

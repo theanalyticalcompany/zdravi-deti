@@ -436,6 +436,16 @@ function page_dashboard(): void
                             </div>
                         </div>
 
+                        <form method="post" action="<?= e(url('temperature_save')) ?>" class="quick-temperature-form">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                            <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
+                            <input type="hidden" name="return_to" value="dashboard">
+                            <span class="quick-label">Rychlý zápis teploty</span>
+                            <input required name="temperature_celsius" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="38,4" pattern="[0-9]+([,.][0-9])?" aria-label="Teplota ve stupních Celsia">
+                            <button class="button primary" type="submit">Uložit</button>
+                        </form>
+
                         <div class="chart-heading">
                             <h3>Historie za posledních 72 hodin</h3>
                         </div>
@@ -849,6 +859,14 @@ function symptom_detail_label(string $symptoms, ?string $severity): string
     return $label;
 }
 
+function redirect_after_child_record_save(int $childId): void
+{
+    if (($_POST['return_to'] ?? '') === 'dashboard') {
+        redirect('dashboard');
+    }
+    redirect('child', ['id' => $childId]);
+}
+
 function action_child_delete(): void
 {
     $user = require_login();
@@ -868,7 +886,7 @@ function action_temperature_save(): void
     $value = (float)str_replace(',', '.', (string)($_POST['temperature_celsius'] ?? ''));
     if ($value < 30 || $value > 45) {
         flash('error', 'Teplota musí být v rozsahu 30,0 až 45,0 °C.');
-        redirect('child', ['id' => $child['id']]);
+        redirect_after_child_record_save((int)$child['id']);
     }
     try {
         $eventAt = db_datetime($_POST['event_at'] ?? '');
@@ -899,7 +917,7 @@ function action_temperature_save(): void
         }
         flash('error', $e->getMessage());
     }
-    redirect('child', ['id' => $child['id']]);
+    redirect_after_child_record_save((int)$child['id']);
 }
 
 function action_medication_record_save(): void
