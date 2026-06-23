@@ -242,6 +242,15 @@ function provider_contact_label(array $provider): string
     ]))) ?: '-';
 }
 
+function provider_specialty_label(array $provider): string
+{
+    $specialties = trim((string)($provider['specialties'] ?? ''));
+    if ($specialties !== '') {
+        return $specialties;
+    }
+    return trim((string)($provider['care_field'] ?? '')) ?: trim((string)($provider['facility_type'] ?? ''));
+}
+
 function now_sql(): string
 {
     return (new DateTimeImmutable())->format('Y-m-d H:i:s');

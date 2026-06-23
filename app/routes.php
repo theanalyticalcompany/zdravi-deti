@@ -746,8 +746,9 @@ function page_child_doctors(): void
                     <?php foreach ($assigned as $doctor): ?>
                         <div class="provider-card assigned">
                             <div>
-                                <strong><?= e($doctor['role_label'] ?: ($doctor['care_field'] ?: 'Lékař')) ?></strong>
+                                <strong><?= e($doctor['role_label'] ?: (provider_specialty_label($doctor) ?: 'Lékař')) ?></strong>
                                 <span><?= e($doctor['name']) ?></span>
+                                <small><?= e(provider_specialty_label($doctor)) ?></small>
                                 <small><?= e(provider_address_label($doctor)) ?></small>
                                 <?php if (!empty($doctor['phone']) || !empty($doctor['email']) || !empty($doctor['web'])): ?>
                                     <small><?= e(provider_contact_label($doctor)) ?></small>
@@ -798,7 +799,7 @@ function page_child_doctors(): void
                         <div class="provider-card">
                             <div>
                                 <strong><?= e($provider['name']) ?></strong>
-                                <span><?= e($provider['care_field'] ?: $provider['facility_type']) ?></span>
+                                <span><?= e(provider_specialty_label($provider) ?: $provider['facility_type']) ?></span>
                                 <small><?= e(provider_address_label($provider)) ?></small>
                                 <?php if (!empty($provider['phone']) || !empty($provider['email']) || !empty($provider['web'])): ?>
                                     <small><?= e(provider_contact_label($provider)) ?></small>
@@ -808,7 +809,7 @@ function page_child_doctors(): void
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
                                 <input type="hidden" name="provider_id" value="<?= e($provider['id']) ?>">
-                                <input name="role_label" value="<?= e($provider['care_field'] ?? '') ?>" placeholder="Role u dítěte">
+                                <input name="role_label" value="<?= e($careField ?: '') ?>" placeholder="Role u dítěte">
                                 <button class="button tiny primary" type="submit">Přidat</button>
                             </form>
                         </div>
@@ -1780,7 +1781,7 @@ function page_export(): void
                     <tbody>
                     <?php foreach ($doctors as $doctor): ?>
                         <tr>
-                            <td><?= e($doctor['role_label'] ?: ($doctor['care_field'] ?: '-')) ?></td>
+                            <td><?= e($doctor['role_label'] ?: (provider_specialty_label($doctor) ?: '-')) ?></td>
                             <td><?= e($doctor['name']) ?></td>
                             <td><?= e(provider_address_label($doctor)) ?></td>
                             <td><?= e(provider_contact_label($doctor)) ?></td>

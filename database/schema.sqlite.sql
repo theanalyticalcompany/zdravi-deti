@@ -237,6 +237,16 @@ CREATE INDEX idx_healthcare_providers_name ON healthcare_providers(name);
 CREATE INDEX idx_healthcare_providers_care_field ON healthcare_providers(care_field);
 CREATE INDEX idx_healthcare_providers_city ON healthcare_providers(city);
 
+CREATE TABLE healthcare_provider_specialties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_id INTEGER NOT NULL,
+    specialty TEXT NOT NULL,
+    UNIQUE (provider_id, specialty),
+    FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_healthcare_provider_specialties_specialty ON healthcare_provider_specialties(specialty);
+
 CREATE TABLE child_doctors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     child_id INTEGER NOT NULL,

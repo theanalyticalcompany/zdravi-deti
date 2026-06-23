@@ -125,7 +125,7 @@ $providerRow = [
     'NazevCely' => 'Dětská ordinace Test',
     'PoskytovatelNazev' => 'Dětská ordinace Test s.r.o.',
     'DruhZarizeni' => 'Samostatná ordinace praktického lékaře',
-    'OborPece' => 'praktické lékařství pro děti a dorost',
+    'OborPece' => 'praktické lékařství pro děti a dorost, alergologie a klinická imunologie',
     'FormaPece' => 'ambulantní péče',
     'DruhPece' => '',
     'Obec' => 'Praha',
@@ -142,8 +142,12 @@ $providerRow = [
     'LastModified' => '2026-06-01 00:00:00',
 ];
 assert_true(import_nrpzs_provider_row($providerRow), 'provider row is imported');
-$providers = search_healthcare_providers('Dětská', 'praktické lékařství pro děti a dorost', 'Praha');
+$fields = array_column(healthcare_provider_fields(), 'care_field');
+assert_true(in_array('praktické lékařství pro děti a dorost', $fields, true), 'first provider specialty is indexed');
+assert_true(in_array('alergologie a klinická imunologie', $fields, true), 'second provider specialty is indexed');
+$providers = search_healthcare_providers('Dětská', 'alergologie a klinická imunologie', 'Praha');
 assert_true(count($providers) === 1, 'provider search finds imported provider');
+assert_true(strpos((string)$providers[0]['specialties'], 'praktické lékařství pro děti a dorost') !== false, 'provider result includes all specialties');
 add_child_doctor($childId, (int)$providers[0]['id'], 'Pediatr');
 $doctors = child_doctors($childId);
 assert_true(count($doctors) === 1 && $doctors[0]['role_label'] === 'Pediatr', 'doctor can be assigned to child');

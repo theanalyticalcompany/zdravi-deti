@@ -129,6 +129,16 @@ function ensure_runtime_schema(): void
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_care_field ON healthcare_providers(care_field)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_city ON healthcare_providers(city)');
         db()->exec(
+            'CREATE TABLE IF NOT EXISTS healthcare_provider_specialties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider_id INTEGER NOT NULL,
+                specialty TEXT NOT NULL,
+                UNIQUE (provider_id, specialty),
+                FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_provider_specialties_specialty ON healthcare_provider_specialties(specialty)');
+        db()->exec(
             'CREATE TABLE IF NOT EXISTS child_doctors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 child_id INTEGER NOT NULL,
@@ -276,6 +286,16 @@ function ensure_runtime_schema(): void
                 KEY idx_healthcare_providers_name (name),
                 KEY idx_healthcare_providers_care_field (care_field),
                 KEY idx_healthcare_providers_city (city)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS healthcare_provider_specialties (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                provider_id INT UNSIGNED NOT NULL,
+                specialty VARCHAR(255) NOT NULL,
+                UNIQUE KEY uq_healthcare_provider_specialty (provider_id, specialty),
+                KEY idx_healthcare_provider_specialties_specialty (specialty),
+                CONSTRAINT fk_provider_specialties_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         db()->exec(
@@ -872,6 +892,17 @@ function provider_value(array $row, string $key): ?string
     return $value === '' ? null : $value;
 }
 
+function split_provider_specialties(?string $careField): array
+{
+    if ($careField === null || trim($careField) === '') {
+        return [];
+    }
+    $items = preg_split('/\s*,\s*/u', $careField) ?: [];
+    $items = array_map(fn($item) => trim($item), $items);
+    $items = array_filter($items, fn($item) => $item !== '');
+    return array_values(array_unique($items));
+}
+
 function import_nrpzs_provider_row(array $row): bool
 {
     $sourceId = provider_value($row, 'MistoPoskytovaniId') ?? provider_value($row, 'ZdravotnickeZarizeniId');
@@ -955,6 +986,16 @@ function import_nrpzs_provider_row(array $row): bool
     }
 
     db()->prepare($sql)->execute($values);
+    $stmt = db()->prepare('SELECT id FROM healthcare_providers WHERE source = ? AND source_id = ? LIMIT 1');
+    $stmt->execute(['NRPZS', $sourceId]);
+    $providerId = (int)$stmt->fetchColumn();
+    if ($providerId > 0) {
+        $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+        $specialtyStmt = db()->prepare($insertIgnore . ' INTO healthcare_provider_specialties (provider_id, specialty) VALUES (?, ?)');
+        foreach (split_provider_specialties(provider_value($row, 'OborPece')) as $specialty) {
+            $specialtyStmt->execute([$providerId, $specialty]);
+        }
+    }
     return true;
 }
 
@@ -966,14 +1007,22 @@ function healthcare_provider_count(): int
 function healthcare_provider_fields(): array
 {
     $stmt = db()->query(
-        'SELECT care_field, COUNT(*) AS count_items
-         FROM healthcare_providers
-         WHERE care_field IS NOT NULL AND care_field <> ""
-         GROUP BY care_field
-         ORDER BY care_field
+        'SELECT specialty AS care_field, COUNT(*) AS count_items
+         FROM healthcare_provider_specialties
+         WHERE specialty IS NOT NULL AND specialty <> ""
+         GROUP BY specialty
+         ORDER BY specialty
          LIMIT 400'
     );
     return $stmt->fetchAll();
+}
+
+function provider_specialties_sql(): string
+{
+    if (db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+        return '(SELECT GROUP_CONCAT(hps.specialty ORDER BY hps.specialty SEPARATOR ", ") FROM healthcare_provider_specialties hps WHERE hps.provider_id = hp.id) AS specialties';
+    }
+    return '(SELECT GROUP_CONCAT(hps.specialty, ", ") FROM healthcare_provider_specialties hps WHERE hps.provider_id = hp.id) AS specialties';
 }
 
 function search_healthcare_providers(string $query, string $careField = '', string $city = '', int $limit = 40): array
@@ -985,12 +1034,12 @@ function search_healthcare_providers(string $query, string $careField = '', stri
     $city = trim($city);
 
     if ($query !== '') {
-        $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ?)';
+        $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ? OR EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_q WHERE hps_q.provider_id = healthcare_providers.id AND hps_q.specialty LIKE ?))';
         $like = '%' . $query . '%';
-        array_push($params, $like, $like, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like, $like, $like);
     }
     if ($careField !== '') {
-        $where[] = 'care_field = ?';
+        $where[] = 'EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_f WHERE hps_f.provider_id = healthcare_providers.id AND hps_f.specialty = ?)';
         $params[] = $careField;
     }
     if ($city !== '') {
@@ -1002,7 +1051,8 @@ function search_healthcare_providers(string $query, string $careField = '', stri
         return [];
     }
 
-    $sql = 'SELECT * FROM healthcare_providers WHERE ' . implode(' AND ', $where) . ' ORDER BY city, name LIMIT ' . max(1, min(80, $limit));
+    $specialtiesSql = provider_specialties_sql();
+    $sql = 'SELECT healthcare_providers.*, ' . str_replace('hp.id', 'healthcare_providers.id', $specialtiesSql) . ' FROM healthcare_providers WHERE ' . implode(' AND ', $where) . ' ORDER BY city, name LIMIT ' . max(1, min(80, $limit));
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
@@ -1017,9 +1067,11 @@ function healthcare_provider_by_id(int $providerId): ?array
 
 function child_doctors(int $childId): array
 {
+    $specialtiesSql = provider_specialties_sql();
     $stmt = db()->prepare(
         'SELECT cd.*, hp.name, hp.provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
                 hp.region, hp.district, hp.phone, hp.email, hp.web, hp.representative
+                , ' . $specialtiesSql . '
          FROM child_doctors cd
          JOIN healthcare_providers hp ON hp.id = cd.provider_id
          WHERE cd.child_id = ?

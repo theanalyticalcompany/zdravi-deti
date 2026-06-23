@@ -227,6 +227,15 @@ CREATE TABLE healthcare_providers (
     KEY idx_healthcare_providers_city (city)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE healthcare_provider_specialties (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    provider_id INT UNSIGNED NOT NULL,
+    specialty VARCHAR(255) NOT NULL,
+    UNIQUE KEY uq_healthcare_provider_specialty (provider_id, specialty),
+    KEY idx_healthcare_provider_specialties_specialty (specialty),
+    CONSTRAINT fk_provider_specialties_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE child_doctors (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     child_id INT UNSIGNED NOT NULL,
