@@ -111,5 +111,34 @@ $pdo->prepare('INSERT INTO symptom_records (health_record_id, symptoms, severity
 $record = record_for_user($recordId, $userId);
 assert_true($record && $record['code'] === 'SYMPTOMS' && $record['symptoms'] === 'kašel, rýma', 'symptom record is readable');
 
+$providerRow = [
+    'MistoPoskytovaniId' => 'test-provider-1',
+    'NazevCely' => 'Dětská ordinace Test',
+    'PoskytovatelNazev' => 'Dětská ordinace Test s.r.o.',
+    'DruhZarizeni' => 'Samostatná ordinace praktického lékaře',
+    'OborPece' => 'praktické lékařství pro děti a dorost',
+    'FormaPece' => 'ambulantní péče',
+    'DruhPece' => '',
+    'Obec' => 'Praha',
+    'Psc' => '11000',
+    'Ulice' => 'Testovací',
+    'CisloDomovniOrientacni' => '1',
+    'Kraj' => 'Hlavní město Praha',
+    'Okres' => 'Hlavní město Praha',
+    'PoskytovatelTelefon' => '+420123456789',
+    'PoskytovatelEmail' => 'ordinace@example.test',
+    'PoskytovatelWeb' => 'https://example.test',
+    'OdbornyZastupce' => 'MUDr. Test',
+    'GPS' => '',
+    'LastModified' => '2026-06-01 00:00:00',
+];
+assert_true(import_nrpzs_provider_row($providerRow), 'provider row is imported');
+$providers = search_healthcare_providers('Dětská', 'praktické lékařství pro děti a dorost', 'Praha');
+assert_true(count($providers) === 1, 'provider search finds imported provider');
+add_child_doctor($childId, (int)$providers[0]['id'], 'Pediatr');
+$doctors = child_doctors($childId);
+assert_true(count($doctors) === 1 && $doctors[0]['role_label'] === 'Pediatr', 'doctor can be assigned to child');
+assert_true(remove_child_doctor($childId, (int)$doctors[0]['id']) !== null, 'doctor can be removed from child');
+
 @unlink($dbPath);
 echo "OK\n";

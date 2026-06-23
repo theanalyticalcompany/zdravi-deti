@@ -206,3 +206,47 @@ CREATE TABLE user_sessions (
 
 CREATE INDEX idx_user_sessions_user ON user_sessions(user_id);
 CREATE INDEX idx_user_sessions_revoked ON user_sessions(revoked_at);
+
+CREATE TABLE healthcare_providers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL DEFAULT 'NRPZS',
+    source_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    provider_name TEXT NULL,
+    facility_type TEXT NULL,
+    care_field TEXT NULL,
+    care_form TEXT NULL,
+    care_type TEXT NULL,
+    city TEXT NULL,
+    zip TEXT NULL,
+    street TEXT NULL,
+    house_number TEXT NULL,
+    region TEXT NULL,
+    district TEXT NULL,
+    phone TEXT NULL,
+    email TEXT NULL,
+    web TEXT NULL,
+    representative TEXT NULL,
+    gps TEXT NULL,
+    last_modified TEXT NULL,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (source, source_id)
+);
+
+CREATE INDEX idx_healthcare_providers_name ON healthcare_providers(name);
+CREATE INDEX idx_healthcare_providers_care_field ON healthcare_providers(care_field);
+CREATE INDEX idx_healthcare_providers_city ON healthcare_providers(city);
+
+CREATE TABLE child_doctors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    child_id INTEGER NOT NULL,
+    provider_id INTEGER NOT NULL,
+    role_label TEXT NULL,
+    note TEXT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (child_id, provider_id),
+    FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_child_doctors_child ON child_doctors(child_id);

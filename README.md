@@ -14,6 +14,8 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 - role vlastníka rodiny a dalších rodičů,
 - pozvánky rodičů e-mailem,
 - správa dětí a přístupů rodičů,
+- jednorázový import poskytovatelů zdravotních služeb z NRPZS/ÚZIS,
+- přiřazení ošetřujících lékařů k dítěti z lokálního číselníku,
 - evidence váhy, alergií a dopočítání věku dítěte,
 - evidence teplot, podaných léků, příznaků a záznamů péče,
 - rychlé zadání léku a příznaků na detailu dítěte,

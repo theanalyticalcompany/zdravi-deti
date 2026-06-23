@@ -217,6 +217,31 @@ function medication_label(array $medication): string
     return implode(' ', $parts);
 }
 
+function provider_address_label(array $provider): string
+{
+    $street = trim(implode(' ', array_filter([
+        $provider['street'] ?? '',
+        $provider['house_number'] ?? '',
+    ])));
+    return trim(implode(', ', array_filter([
+        $street,
+        trim(implode(' ', array_filter([
+            $provider['zip'] ?? '',
+            $provider['city'] ?? '',
+        ]))),
+        $provider['district'] ?? '',
+    ]))) ?: '-';
+}
+
+function provider_contact_label(array $provider): string
+{
+    return trim(implode(' · ', array_filter([
+        $provider['phone'] ?? '',
+        $provider['email'] ?? '',
+        $provider['web'] ?? '',
+    ]))) ?: '-';
+}
+
 function now_sql(): string
 {
     return (new DateTimeImmutable())->format('Y-m-d H:i:s');

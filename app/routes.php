@@ -25,6 +25,9 @@ function dispatch(): void
         case 'dashboard': page_dashboard(); break;
         case 'children': page_children(); break;
         case 'child': page_child(); break;
+        case 'child_doctors': page_child_doctors(); break;
+        case 'child_doctor_add': action_child_doctor_add(); break;
+        case 'child_doctor_remove': action_child_doctor_remove(); break;
         case 'child_create': action_child_create(); break;
         case 'child_profile_save': action_child_profile_save(); break;
         case 'child_delete': action_child_delete(); break;
@@ -586,6 +589,7 @@ function page_children(): void
                             </div>
                             <div class="actions">
                                 <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>#child-edit">Upravit</a>
+                                <a class="button tiny" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
                                 <a class="button tiny" href="<?= e(url('family')) ?>">Přístupy</a>
                             </div>
                         </div>
@@ -706,6 +710,146 @@ function action_child_profile_save(): void
     }
 
     redirect('child', ['id' => $child['id']]);
+}
+
+function page_child_doctors(): void
+{
+    $user = require_login();
+    $child = require_child_access((int)($_GET['child_id'] ?? $_POST['child_id'] ?? 0), (int)$user['id']);
+    $assigned = child_doctors((int)$child['id']);
+    $fields = healthcare_provider_fields();
+    $query = trim((string)($_GET['q'] ?? ''));
+    $careField = trim((string)($_GET['care_field'] ?? ''));
+    $city = trim((string)($_GET['city'] ?? ''));
+    $results = search_healthcare_providers($query, $careField, $city, 50);
+    $providerCount = healthcare_provider_count();
+
+    render_layout('Lékaři dítěte', function () use ($child, $assigned, $fields, $query, $careField, $city, $results, $providerCount) {
+        ?>
+        <div class="page-head">
+            <div>
+                <h1>Lékaři dítěte</h1>
+                <p class="muted"><?= e($child['first_name'] . ' ' . $child['last_name']) ?> · číselník NRPZS: <?= e(number_format($providerCount, 0, ',', ' ')) ?> záznamů</p>
+            </div>
+            <div class="actions">
+                <a class="button" href="<?= e(url('children')) ?>">Zpět na správu</a>
+                <a class="button" href="<?= e(url('child', ['id' => $child['id']])) ?>">Otevřít dítě</a>
+            </div>
+        </div>
+
+        <section class="panel">
+            <h2>Přiřazení lékaři</h2>
+            <?php if (!$assigned): ?>
+                <div class="empty">Zatím není přiřazený žádný lékař.</div>
+            <?php else: ?>
+                <div class="provider-list">
+                    <?php foreach ($assigned as $doctor): ?>
+                        <div class="provider-card assigned">
+                            <div>
+                                <strong><?= e($doctor['role_label'] ?: ($doctor['care_field'] ?: 'Lékař')) ?></strong>
+                                <span><?= e($doctor['name']) ?></span>
+                                <small><?= e(provider_address_label($doctor)) ?></small>
+                                <?php if (!empty($doctor['phone']) || !empty($doctor['email']) || !empty($doctor['web'])): ?>
+                                    <small><?= e(provider_contact_label($doctor)) ?></small>
+                                <?php endif; ?>
+                            </div>
+                            <form method="post" action="<?= e(url('child_doctor_remove')) ?>" data-confirm="Odebrat lékaře od dítěte?">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                                <input type="hidden" name="child_doctor_id" value="<?= e($doctor['id']) ?>">
+                                <button class="button tiny danger" type="submit">Odebrat</button>
+                            </form>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <section class="panel">
+            <h2>Vyhledat v číselníku</h2>
+            <?php if ($providerCount === 0): ?>
+                <div class="empty">Číselník poskytovatelů zatím není naimportovaný.</div>
+            <?php endif; ?>
+            <form method="get" class="provider-search">
+                <input type="hidden" name="r" value="child_doctors">
+                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                <label>Obor
+                    <select name="care_field">
+                        <option value="">Všechny obory</option>
+                        <?php foreach ($fields as $field): ?>
+                            <option value="<?= e($field['care_field']) ?>" <?= $field['care_field'] === $careField ? 'selected' : '' ?>>
+                                <?= e($field['care_field'] . ' (' . $field['count_items'] . ')') ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Město <input name="city" value="<?= e($city) ?>" placeholder="např. Praha, Brno"></label>
+                <label>Hledat <input name="q" value="<?= e($query) ?>" placeholder="název, lékař, ulice"></label>
+                <button class="button primary" type="submit">Hledat</button>
+            </form>
+
+            <?php if (($query !== '' || $careField !== '' || $city !== '') && !$results): ?>
+                <div class="empty">Nenašel jsem žádného poskytovatele. Zkuste méně přesný dotaz nebo jiný obor.</div>
+            <?php endif; ?>
+
+            <?php if ($results): ?>
+                <div class="provider-list search-results">
+                    <?php foreach ($results as $provider): ?>
+                        <div class="provider-card">
+                            <div>
+                                <strong><?= e($provider['name']) ?></strong>
+                                <span><?= e($provider['care_field'] ?: $provider['facility_type']) ?></span>
+                                <small><?= e(provider_address_label($provider)) ?></small>
+                                <?php if (!empty($provider['phone']) || !empty($provider['email']) || !empty($provider['web'])): ?>
+                                    <small><?= e(provider_contact_label($provider)) ?></small>
+                                <?php endif; ?>
+                            </div>
+                            <form method="post" action="<?= e(url('child_doctor_add')) ?>" class="provider-add-form">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                                <input type="hidden" name="provider_id" value="<?= e($provider['id']) ?>">
+                                <input name="role_label" value="<?= e($provider['care_field'] ?? '') ?>" placeholder="Role u dítěte">
+                                <button class="button tiny primary" type="submit">Přidat</button>
+                            </form>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+        <?php
+    }, 'children');
+}
+
+function action_child_doctor_add(): void
+{
+    $user = require_login();
+    $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
+    $family = current_family((int)$user['id']);
+    $providerId = (int)($_POST['provider_id'] ?? 0);
+    $roleLabel = trim((string)($_POST['role_label'] ?? ''));
+    try {
+        add_child_doctor((int)$child['id'], $providerId, $roleLabel);
+        audit_log('child.doctor_added', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id'], ['provider_id' => $providerId]);
+        flash('success', 'Lékař byl přiřazen k dítěti.');
+    } catch (Throwable $e) {
+        flash('error', $e->getMessage());
+    }
+    redirect('child_doctors', ['child_id' => $child['id']]);
+}
+
+function action_child_doctor_remove(): void
+{
+    $user = require_login();
+    $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
+    $family = current_family((int)$user['id']);
+    $doctor = remove_child_doctor((int)$child['id'], (int)($_POST['child_doctor_id'] ?? 0));
+    if ($doctor) {
+        audit_log('child.doctor_removed', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id'], ['provider_id' => (int)$doctor['provider_id']]);
+        flash('success', 'Lékař byl odebrán.');
+    } else {
+        flash('error', 'Přiřazený lékař nebyl nalezen.');
+    }
+    redirect('child_doctors', ['child_id' => $child['id']]);
 }
 
 function page_child(): void
@@ -1586,8 +1730,9 @@ function page_export(): void
     $stmt->execute([$child['id'], $fromDb, $toDb]);
     $records = $stmt->fetchAll();
     $timeline72 = timeline_data((int)$child['id'], 72);
+    $doctors = child_doctors((int)$child['id']);
 
-    render_layout('Export pro lékaře', function () use ($child, $records, $from, $to, $timeline72) {
+    render_layout('Export pro lékaře', function () use ($child, $records, $from, $to, $timeline72, $doctors) {
         $temps = array_filter($records, fn($r) => $r['kind'] === 'TEMPERATURE');
         $max = $temps ? max(array_map(fn($r) => (float)$r['temperature_celsius'], $temps)) : null;
         ?>
@@ -1627,6 +1772,24 @@ function page_export(): void
             <h2>Graf za posledních 72 hodin</h2>
             <?php render_timeline_chart($timeline72); ?>
         </section>
+        <?php if ($doctors): ?>
+            <section class="panel print-flat">
+                <h2>Ošetřující lékaři</h2>
+                <table>
+                    <thead><tr><th>Role/obor</th><th>Poskytovatel</th><th>Adresa</th><th>Kontakt</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($doctors as $doctor): ?>
+                        <tr>
+                            <td><?= e($doctor['role_label'] ?: ($doctor['care_field'] ?: '-')) ?></td>
+                            <td><?= e($doctor['name']) ?></td>
+                            <td><?= e(provider_address_label($doctor)) ?></td>
+                            <td><?= e(provider_contact_label($doctor)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+        <?php endif; ?>
         <section class="panel print-flat">
             <h2>Záznamy</h2>
             <table>

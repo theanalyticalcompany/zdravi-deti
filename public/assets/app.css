@@ -652,6 +652,59 @@ th {
     gap: .2rem;
 }
 
+.provider-search {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1.2fr) minmax(9rem, .7fr) minmax(12rem, 1fr) auto;
+    gap: .75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+}
+
+.provider-list {
+    display: grid;
+    gap: .65rem;
+    margin-top: .85rem;
+}
+
+.provider-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, .8fr);
+    gap: .85rem;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .85rem;
+    background: var(--surface-soft);
+}
+
+.provider-card.assigned {
+    border-color: rgba(29, 127, 95, .25);
+    background: rgba(29, 127, 95, .055);
+}
+
+.provider-card > div {
+    min-width: 0;
+    display: grid;
+    gap: .2rem;
+}
+
+.provider-card strong,
+.provider-card span,
+.provider-card small {
+    overflow-wrap: anywhere;
+}
+
+.provider-card small {
+    color: var(--muted);
+}
+
+.provider-add-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .5rem;
+    align-items: center;
+}
+
 .badge {
     display: inline-flex;
     align-items: center;
@@ -753,7 +806,10 @@ th {
 
     .access-grid,
     .admin-row,
-    .list-row {
+    .list-row,
+    .provider-search,
+    .provider-card,
+    .provider-add-form {
         grid-template-columns: 1fr;
     }
 }

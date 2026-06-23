@@ -197,3 +197,45 @@ CREATE TABLE user_sessions (
     KEY idx_user_sessions_revoked (revoked_at),
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE healthcare_providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source VARCHAR(40) NOT NULL DEFAULT 'NRPZS',
+    source_id VARCHAR(80) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    provider_name VARCHAR(255) NULL,
+    facility_type VARCHAR(255) NULL,
+    care_field VARCHAR(255) NULL,
+    care_form VARCHAR(255) NULL,
+    care_type VARCHAR(255) NULL,
+    city VARCHAR(160) NULL,
+    zip VARCHAR(20) NULL,
+    street VARCHAR(160) NULL,
+    house_number VARCHAR(80) NULL,
+    region VARCHAR(160) NULL,
+    district VARCHAR(160) NULL,
+    phone VARCHAR(120) NULL,
+    email VARCHAR(190) NULL,
+    web VARCHAR(255) NULL,
+    representative VARCHAR(255) NULL,
+    gps VARCHAR(120) NULL,
+    last_modified DATETIME NULL,
+    imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_healthcare_provider_source (source, source_id),
+    KEY idx_healthcare_providers_name (name),
+    KEY idx_healthcare_providers_care_field (care_field),
+    KEY idx_healthcare_providers_city (city)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE child_doctors (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    child_id INT UNSIGNED NOT NULL,
+    provider_id INT UNSIGNED NOT NULL,
+    role_label VARCHAR(160) NULL,
+    note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_child_doctor_provider (child_id, provider_id),
+    KEY idx_child_doctors_child (child_id),
+    CONSTRAINT fk_child_doctors_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    CONSTRAINT fk_child_doctors_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

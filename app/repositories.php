@@ -99,6 +99,50 @@ function ensure_runtime_schema(): void
         db()->exec('CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_user_sessions_revoked ON user_sessions(revoked_at)');
         db()->exec(
+            'CREATE TABLE IF NOT EXISTS healthcare_providers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL DEFAULT "NRPZS",
+                source_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                provider_name TEXT NULL,
+                facility_type TEXT NULL,
+                care_field TEXT NULL,
+                care_form TEXT NULL,
+                care_type TEXT NULL,
+                city TEXT NULL,
+                zip TEXT NULL,
+                street TEXT NULL,
+                house_number TEXT NULL,
+                region TEXT NULL,
+                district TEXT NULL,
+                phone TEXT NULL,
+                email TEXT NULL,
+                web TEXT NULL,
+                representative TEXT NULL,
+                gps TEXT NULL,
+                last_modified TEXT NULL,
+                imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (source, source_id)
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_name ON healthcare_providers(name)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_care_field ON healthcare_providers(care_field)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_city ON healthcare_providers(city)');
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_doctors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                child_id INTEGER NOT NULL,
+                provider_id INTEGER NOT NULL,
+                role_label TEXT NULL,
+                note TEXT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (child_id, provider_id),
+                FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_doctors_child ON child_doctors(child_id)');
+        db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INTEGER PRIMARY KEY,
                 symptoms TEXT NOT NULL,
@@ -202,6 +246,50 @@ function ensure_runtime_schema(): void
                 KEY idx_user_sessions_user (user_id),
                 KEY idx_user_sessions_revoked (revoked_at),
                 CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS healthcare_providers (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                source VARCHAR(40) NOT NULL DEFAULT "NRPZS",
+                source_id VARCHAR(80) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                provider_name VARCHAR(255) NULL,
+                facility_type VARCHAR(255) NULL,
+                care_field VARCHAR(255) NULL,
+                care_form VARCHAR(255) NULL,
+                care_type VARCHAR(255) NULL,
+                city VARCHAR(160) NULL,
+                zip VARCHAR(20) NULL,
+                street VARCHAR(160) NULL,
+                house_number VARCHAR(80) NULL,
+                region VARCHAR(160) NULL,
+                district VARCHAR(160) NULL,
+                phone VARCHAR(120) NULL,
+                email VARCHAR(190) NULL,
+                web VARCHAR(255) NULL,
+                representative VARCHAR(255) NULL,
+                gps VARCHAR(120) NULL,
+                last_modified DATETIME NULL,
+                imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_healthcare_provider_source (source, source_id),
+                KEY idx_healthcare_providers_name (name),
+                KEY idx_healthcare_providers_care_field (care_field),
+                KEY idx_healthcare_providers_city (city)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_doctors (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                child_id INT UNSIGNED NOT NULL,
+                provider_id INT UNSIGNED NOT NULL,
+                role_label VARCHAR(160) NULL,
+                note TEXT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_child_doctor_provider (child_id, provider_id),
+                KEY idx_child_doctors_child (child_id),
+                CONSTRAINT fk_child_doctors_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                CONSTRAINT fk_child_doctors_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         db()->exec(
@@ -765,6 +853,191 @@ function child_for_user(int $childId, int $userId): ?array
     );
     $stmt->execute([$userId, $childId]);
     return $stmt->fetch() ?: null;
+}
+
+function provider_value(array $row, string $key): ?string
+{
+    $value = trim((string)($row[$key] ?? ''));
+    return $value === '' ? null : $value;
+}
+
+function import_nrpzs_provider_row(array $row): bool
+{
+    $sourceId = provider_value($row, 'MistoPoskytovaniId') ?? provider_value($row, 'ZdravotnickeZarizeniId');
+    $name = provider_value($row, 'NazevCely') ?? provider_value($row, 'PoskytovatelNazev');
+    if (!$sourceId || !$name) {
+        return false;
+    }
+
+    $values = [
+        'NRPZS',
+        $sourceId,
+        $name,
+        provider_value($row, 'PoskytovatelNazev'),
+        provider_value($row, 'DruhZarizeni'),
+        provider_value($row, 'OborPece'),
+        provider_value($row, 'FormaPece'),
+        provider_value($row, 'DruhPece'),
+        provider_value($row, 'Obec'),
+        provider_value($row, 'Psc'),
+        provider_value($row, 'Ulice'),
+        provider_value($row, 'CisloDomovniOrientacni'),
+        provider_value($row, 'Kraj'),
+        provider_value($row, 'Okres'),
+        provider_value($row, 'PoskytovatelTelefon'),
+        provider_value($row, 'PoskytovatelEmail'),
+        provider_value($row, 'PoskytovatelWeb'),
+        provider_value($row, 'OdbornyZastupce'),
+        provider_value($row, 'GPS'),
+        provider_value($row, 'LastModified'),
+        now_sql(),
+    ];
+
+    if (db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+        $sql = 'INSERT INTO healthcare_providers
+                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    name = VALUES(name),
+                    provider_name = VALUES(provider_name),
+                    facility_type = VALUES(facility_type),
+                    care_field = VALUES(care_field),
+                    care_form = VALUES(care_form),
+                    care_type = VALUES(care_type),
+                    city = VALUES(city),
+                    zip = VALUES(zip),
+                    street = VALUES(street),
+                    house_number = VALUES(house_number),
+                    region = VALUES(region),
+                    district = VALUES(district),
+                    phone = VALUES(phone),
+                    email = VALUES(email),
+                    web = VALUES(web),
+                    representative = VALUES(representative),
+                    gps = VALUES(gps),
+                    last_modified = VALUES(last_modified),
+                    imported_at = VALUES(imported_at)';
+    } else {
+        $sql = 'INSERT INTO healthcare_providers
+                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, source_id) DO UPDATE SET
+                    name = excluded.name,
+                    provider_name = excluded.provider_name,
+                    facility_type = excluded.facility_type,
+                    care_field = excluded.care_field,
+                    care_form = excluded.care_form,
+                    care_type = excluded.care_type,
+                    city = excluded.city,
+                    zip = excluded.zip,
+                    street = excluded.street,
+                    house_number = excluded.house_number,
+                    region = excluded.region,
+                    district = excluded.district,
+                    phone = excluded.phone,
+                    email = excluded.email,
+                    web = excluded.web,
+                    representative = excluded.representative,
+                    gps = excluded.gps,
+                    last_modified = excluded.last_modified,
+                    imported_at = excluded.imported_at';
+    }
+
+    db()->prepare($sql)->execute($values);
+    return true;
+}
+
+function healthcare_provider_count(): int
+{
+    return (int)db()->query('SELECT COUNT(*) FROM healthcare_providers')->fetchColumn();
+}
+
+function healthcare_provider_fields(): array
+{
+    $stmt = db()->query(
+        'SELECT care_field, COUNT(*) AS count_items
+         FROM healthcare_providers
+         WHERE care_field IS NOT NULL AND care_field <> ""
+         GROUP BY care_field
+         ORDER BY care_field
+         LIMIT 400'
+    );
+    return $stmt->fetchAll();
+}
+
+function search_healthcare_providers(string $query, string $careField = '', string $city = '', int $limit = 40): array
+{
+    $where = [];
+    $params = [];
+    $query = trim($query);
+    $careField = trim($careField);
+    $city = trim($city);
+
+    if ($query !== '') {
+        $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ?)';
+        $like = '%' . $query . '%';
+        array_push($params, $like, $like, $like, $like, $like);
+    }
+    if ($careField !== '') {
+        $where[] = 'care_field = ?';
+        $params[] = $careField;
+    }
+    if ($city !== '') {
+        $where[] = 'city LIKE ?';
+        $params[] = '%' . $city . '%';
+    }
+
+    if (!$where) {
+        return [];
+    }
+
+    $sql = 'SELECT * FROM healthcare_providers WHERE ' . implode(' AND ', $where) . ' ORDER BY city, name LIMIT ' . max(1, min(80, $limit));
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function healthcare_provider_by_id(int $providerId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM healthcare_providers WHERE id = ?');
+    $stmt->execute([$providerId]);
+    return $stmt->fetch() ?: null;
+}
+
+function child_doctors(int $childId): array
+{
+    $stmt = db()->prepare(
+        'SELECT cd.*, hp.name, hp.provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.region, hp.district, hp.phone, hp.email, hp.web, hp.representative
+         FROM child_doctors cd
+         JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE cd.child_id = ?
+         ORDER BY COALESCE(cd.role_label, hp.care_field), hp.name'
+    );
+    $stmt->execute([$childId]);
+    return $stmt->fetchAll();
+}
+
+function add_child_doctor(int $childId, int $providerId, string $roleLabel = '', string $note = ''): void
+{
+    if (!healthcare_provider_by_id($providerId)) {
+        throw new InvalidArgumentException('Vybraný lékař nebyl nalezen.');
+    }
+    $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+    db()->prepare($insertIgnore . ' INTO child_doctors (child_id, provider_id, role_label, note) VALUES (?, ?, ?, ?)')
+        ->execute([$childId, $providerId, trim($roleLabel) ?: null, trim($note) ?: null]);
+}
+
+function remove_child_doctor(int $childId, int $childDoctorId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM child_doctors WHERE id = ? AND child_id = ?');
+    $stmt->execute([$childDoctorId, $childId]);
+    $doctor = $stmt->fetch() ?: null;
+    if (!$doctor) {
+        return null;
+    }
+    db()->prepare('DELETE FROM child_doctors WHERE id = ? AND child_id = ?')->execute([$childDoctorId, $childId]);
+    return $doctor;
 }
 
 function child_access_rows(int $childId): array
