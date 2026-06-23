@@ -110,6 +110,14 @@ assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@
 $invitedFamily = current_family($invitedUserId);
 assert_true($invitedFamily && (int)$invitedFamily['id'] === (int)$family['id'], 'invited user joins inviter family');
 assert_true(child_for_user($childId, $invitedUserId) !== null, 'invited user gets child access');
+assert_true(user_owned_family_count($userId) === 1, 'owner family count is detected');
+$ownerDeletionBlocked = false;
+try {
+    delete_user_account($userId);
+} catch (RuntimeException $e) {
+    $ownerDeletionBlocked = true;
+}
+assert_true($ownerDeletionBlocked, 'owner account deletion is blocked while family exists');
 
 $symptomTypeId = record_type_id((int)$family['id'], 'SYMPTOMS');
 $pdo->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
@@ -119,6 +127,18 @@ $pdo->prepare('INSERT INTO symptom_records (health_record_id, symptoms, severity
     ->execute([$recordId, 'kašel, rýma', 'mild']);
 $record = record_for_user($recordId, $userId);
 assert_true($record && $record['code'] === 'SYMPTOMS' && $record['symptoms'] === 'kašel, rýma', 'symptom record is readable');
+
+$pdo->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
+    ->execute([$childId, $symptomTypeId, now_sql(), $invitedUserId, 'Záznam od přizvaného rodiče']);
+delete_user_account($invitedUserId);
+assert_true(find_user($invitedUserId) === null, 'deleted account is no longer active');
+$deletedUser = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+$deletedUser->execute([$invitedUserId]);
+$deletedUserRow = $deletedUser->fetch();
+assert_true($deletedUserRow && (int)$deletedUserRow['is_active'] === 0, 'deleted account is deactivated');
+assert_true(strpos((string)$deletedUserRow['email'], 'deleted-user-' . $invitedUserId . '-') === 0, 'deleted account email is anonymized');
+assert_true(child_for_user($childId, $invitedUserId) === null, 'deleted account loses child access');
+assert_true(current_family($invitedUserId) === null, 'deleted account loses family membership');
 
 $providerRow = [
     'MistoPoskytovaniId' => 'test-provider-1',

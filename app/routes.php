@@ -19,6 +19,8 @@ function dispatch(): void
         case 'logout': action_logout(); break;
         case 'google_start': action_google_start(); break;
         case 'google_callback': action_google_callback(); break;
+        case 'settings': page_settings(); break;
+        case 'account_delete': action_account_delete(); break;
         case 'devices': page_devices(); break;
         case 'device_revoke': action_device_revoke(); break;
         case 'devices_revoke_others': action_devices_revoke_others(); break;
@@ -372,6 +374,102 @@ function action_google_callback(): void
     $family = current_family($userId) ?: ensure_family($userId, $info['name'] ?? 'Rodina');
     audit_log('auth.google_login_success', $userId, (int)$family['id'], 'user', $userId);
     redirect('dashboard');
+}
+
+function page_settings(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $ownedFamilyCount = user_owned_family_count((int)$user['id']);
+    $hasPassword = !empty($user['password_hash']);
+
+    render_layout('Nastavení', function () use ($user, $family, $ownedFamilyCount, $hasPassword) {
+        ?>
+        <div class="page-head">
+            <div>
+                <h1>Nastavení</h1>
+                <p class="muted">Účet, přihlášení a citlivé akce.</p>
+            </div>
+            <a class="button" href="<?= e(url('devices')) ?>">Aktivní zařízení</a>
+        </div>
+
+        <section class="panel">
+            <h2>Účet</h2>
+            <dl class="summary-list">
+                <dt>Jméno</dt>
+                <dd><?= e($user['display_name']) ?></dd>
+                <dt>E-mail</dt>
+                <dd><?= e($user['email']) ?></dd>
+                <dt>Rodina</dt>
+                <dd><?= e($family['name'] ?? 'Bez rodiny') ?></dd>
+                <dt>Role</dt>
+                <dd><?= e(role_label((string)($family['role'] ?? 'PARENT'))) ?></dd>
+                <dt>Přihlášení</dt>
+                <dd><?= $hasPassword ? 'E-mail a heslo' : 'Google účet' ?></dd>
+            </dl>
+        </section>
+
+        <section class="panel danger-zone">
+            <div class="section-head">
+                <div>
+                    <h2>Smazání účtu</h2>
+                    <p class="muted">Smaže osobní údaje účtu, odhlásí všechna zařízení a odebere přístup k rodině a dětem. Historické zdravotní záznamy zůstanou v rodině zachované.</p>
+                </div>
+            </div>
+
+            <?php if ($ownedFamilyCount > 0): ?>
+                <div class="empty">
+                    Tento účet je vlastníkem rodiny. Nejdříve zrušte rodinu na stránce Rodina, nebo vlastnictví v budoucnu předejte jinému rodiči.
+                </div>
+            <?php else: ?>
+                <form method="post" action="<?= e(url('account_delete')) ?>" class="stack" data-confirm="Opravdu chcete smazat svůj účet? Tato akce odhlásí všechna zařízení a nejde vrátit zpět.">
+                    <?= csrf_field() ?>
+                    <?php if ($hasPassword): ?>
+                        <label>Aktuální heslo <input required type="password" name="current_password" autocomplete="current-password"></label>
+                    <?php endif; ?>
+                    <label class="check">
+                        <input required type="checkbox" name="confirm_delete" value="1">
+                        <span>Rozumím, že účet bude anonymizován a ztratím přístup k rodině.</span>
+                    </label>
+                    <button class="button danger" type="submit">Smazat můj účet</button>
+                </form>
+            <?php endif; ?>
+        </section>
+        <?php
+    }, 'settings');
+}
+
+function action_account_delete(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+
+    if (($_POST['confirm_delete'] ?? '') !== '1') {
+        flash('error', 'Potvrďte prosím smazání účtu.');
+        redirect('settings');
+    }
+    if (user_owned_family_count((int)$user['id']) > 0) {
+        flash('error', 'Účet vlastníka rodiny nejde smazat, dokud rodina existuje.');
+        redirect('settings');
+    }
+    if (!empty($user['password_hash'])) {
+        $password = (string)($_POST['current_password'] ?? '');
+        if (!password_verify($password, (string)$user['password_hash'])) {
+            audit_log('auth.account_delete_password_failed', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
+            flash('error', 'Aktuální heslo nesedí.');
+            redirect('settings');
+        }
+    }
+
+    audit_log('auth.account_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
+    delete_user_account((int)$user['id']);
+    $_SESSION = [];
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_destroy();
+        session_start();
+    }
+    flash('success', 'Účet byl smazán.');
+    redirect('login');
 }
 
 function page_devices(): void

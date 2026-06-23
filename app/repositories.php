@@ -430,12 +430,55 @@ function find_user_by_google_subject(string $googleSubject): ?array
     return $stmt->fetch() ?: null;
 }
 
+function user_owned_family_count(int $userId): int
+{
+    $stmt = db()->prepare('SELECT COUNT(*) FROM families WHERE owner_user_id = ?');
+    $stmt->execute([$userId]);
+    return (int)$stmt->fetchColumn();
+}
+
 function create_user(string $email, string $name, ?string $password, ?string $googleSubject = null): int
 {
     $hash = $password ? password_hash($password, PASSWORD_DEFAULT) : null;
     $stmt = db()->prepare('INSERT INTO users (email, display_name, password_hash, google_subject_id) VALUES (?, ?, ?, ?)');
     $stmt->execute([text_lower(trim($email)), trim($name), $hash, $googleSubject]);
     return (int)db()->lastInsertId();
+}
+
+function delete_user_account(int $userId): void
+{
+    $stmt = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch() ?: null;
+    if (!$user) {
+        return;
+    }
+    if (user_owned_family_count($userId) > 0) {
+        throw new RuntimeException('Vlastník rodiny musí nejdříve zrušit rodinu.');
+    }
+
+    $now = now_sql();
+    $oldEmail = (string)$user['email'];
+    $deletedEmail = 'deleted-user-' . $userId . '-' . bin2hex(random_bytes(6)) . '@deleted.local';
+
+    db()->beginTransaction();
+    try {
+        db()->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$userId]);
+        db()->prepare('DELETE FROM user_sessions WHERE user_id = ?')->execute([$userId]);
+        db()->prepare('DELETE FROM child_access WHERE user_id = ?')->execute([$userId]);
+        db()->prepare('DELETE FROM family_members WHERE user_id = ?')->execute([$userId]);
+        db()->prepare('UPDATE family_invitations SET invited_email = ? WHERE invited_email = ?')
+            ->execute([$deletedEmail, text_lower(trim($oldEmail))]);
+        db()->prepare(
+            'UPDATE users
+             SET email = ?, display_name = ?, password_hash = NULL, google_subject_id = NULL, is_active = 0, updated_at = ?
+             WHERE id = ?'
+        )->execute([$deletedEmail, 'Smazaný účet', $now, $userId]);
+        db()->commit();
+    } catch (Throwable $e) {
+        db()->rollBack();
+        throw $e;
+    }
 }
 
 function remember_user_session(int $userId): void
