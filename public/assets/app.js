@@ -51,3 +51,11 @@ function escapeHtml(value) {
 function escapeAttribute(value) {
     return escapeHtml(value).replace(/`/g, '&#096;');
 }
+
+if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {
+            // PWA registrace je doplňková; aplikace musí fungovat i bez ní.
+        });
+    });
+}

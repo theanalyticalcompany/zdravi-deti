@@ -1,6 +1,10 @@
 Options -Indexes
 DirectoryIndex index.php
 
+AddType application/manifest+json .webmanifest
+AddType application/javascript .js
+AddType image/svg+xml .svg
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteCond %{REQUEST_FILENAME} !-f

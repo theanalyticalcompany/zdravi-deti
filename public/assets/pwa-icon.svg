@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Zdraví dětí">
+  <rect width="512" height="512" rx="112" fill="#125c63"/>
+  <circle cx="256" cy="256" r="162" fill="#ffffff" opacity=".96"/>
+  <path d="M238 149h36c8 0 14 6 14 14v58h58c8 0 14 6 14 14v36c0 8-6 14-14 14h-58v64c0 8-6 14-14 14h-36c-8 0-14-6-14-14v-64h-58c-8 0-14-6-14-14v-36c0-8 6-14 14-14h58v-58c0-8 6-14 14-14z" fill="#125c63"/>
+  <path d="M167 382c25 24 56 36 89 36s64-12 89-36" fill="none" stroke="#4fb3a4" stroke-width="28" stroke-linecap="round"/>
+</svg>

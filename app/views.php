@@ -11,7 +11,16 @@ function render_layout(string $title, callable $content, string $active = ''): v
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#125c63" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#101418" media="(prefers-color-scheme: dark)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Zdraví dětí">
     <title><?= e($title) ?> | <?= e(cfg('app.name', 'Zdraví dětí')) ?></title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
     <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>

@@ -21,6 +21,7 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 - auditní log důležitých akcí a rate limiting pro přihlášení a obnovu hesla,
 - e-mailový transport přes lokální log, `mail()`, SMTP nebo obecné API,
 - automatický tmavý režim podle nastavení prohlížeče,
+- PWA instalace na iOS a Android přes prohlížeč,
 - přehled všech dětí na hlavní stránce s grafem za posledních 72 hodin,
 - detail dítěte se souhrnem a časovou osou,
 - tiskově optimalizovaný export pro lékaře,
@@ -54,3 +55,7 @@ Podrobnější postup je v `docs/NASAZENI_A_PROVOZ.md`.
 - Smoke test nad dočasnou SQLite databází: `php tests/smoke.php`.
 - Ruční scénáře pro klíčové flow jsou v `tests/SCENARIOS.md`.
 - GitHub Actions obsahují PHP kontrolu a bezpečnostní secret scan přes Gitleaks.
+
+## PWA
+
+Aplikaci lze na iOS a Androidu přidat na plochu z prohlížeče. PWA režim cachuje jen statické soubory, ikony, manifest a offline obrazovku; zdravotní data a přihlášené stránky se do offline cache neukládají.
