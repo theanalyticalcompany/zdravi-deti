@@ -660,7 +660,21 @@ function pending_invitations_for_email(string $email): array
 function pending_family_invitations(int $familyId): array
 {
     $stmt = db()->prepare(
-        'SELECT fi.*, u.display_name AS inviter_name, u.email AS inviter_email
+        'SELECT fi.*, u.display_name AS inviter_name, u.email AS inviter_email,
+                (
+                    SELECT ru.id
+                    FROM users ru
+                    WHERE ru.email = fi.invited_email AND ru.is_active = 1
+                    ORDER BY ru.google_subject_id IS NOT NULL DESC, ru.last_login_at DESC, ru.id DESC
+                    LIMIT 1
+                ) AS registered_user_id,
+                (
+                    SELECT ru.display_name
+                    FROM users ru
+                    WHERE ru.email = fi.invited_email AND ru.is_active = 1
+                    ORDER BY ru.google_subject_id IS NOT NULL DESC, ru.last_login_at DESC, ru.id DESC
+                    LIMIT 1
+                ) AS registered_display_name
          FROM family_invitations fi
          JOIN users u ON u.id = fi.invited_by_user_id
          WHERE fi.family_id = ? AND fi.accepted_at IS NULL
@@ -696,6 +710,18 @@ function cancel_family_invitation(int $familyId, int $invitationId): ?array
     return $invitation;
 }
 
+function pending_family_invitation_by_id(int $familyId, int $invitationId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM family_invitations
+         WHERE id = ? AND family_id = ? AND accepted_at IS NULL
+         LIMIT 1'
+    );
+    $stmt->execute([$invitationId, $familyId]);
+    return $stmt->fetch() ?: null;
+}
+
 function create_family_invitation(int $familyId, int $inviterUserId, string $email): array
 {
     $token = bin2hex(random_bytes(24));
@@ -725,18 +751,38 @@ function accept_pending_invitations_for_user(int $userId, string $email): array
     return $items;
 }
 
-function add_user_to_family(int $familyId, int $userId): void
+function accept_registered_family_invitation(int $familyId, int $invitationId): ?array
+{
+    $invitation = pending_family_invitation_by_id($familyId, $invitationId);
+    if (!$invitation) {
+        return null;
+    }
+    $user = find_user_by_email((string)$invitation['invited_email']);
+    if (!$user) {
+        return null;
+    }
+
+    add_user_to_family($familyId, (int)$user['id']);
+    db()->prepare('UPDATE family_invitations SET registered_at = COALESCE(registered_at, ?), accepted_at = COALESCE(accepted_at, ?) WHERE id = ?')
+        ->execute([now_sql(), now_sql(), $invitationId]);
+
+    return ['invitation' => $invitation, 'user' => $user];
+}
+
+function add_user_to_family(int $familyId, int $userId, bool $grantChildAccess = false): void
 {
     $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
     db()->beginTransaction();
     try {
         db()->prepare($insertIgnore . ' INTO family_members (family_id, user_id, role) VALUES (?, ?, ?)')
             ->execute([$familyId, $userId, 'PARENT']);
-        $children = db()->prepare('SELECT id FROM children WHERE family_id = ?');
-        $children->execute([$familyId]);
-        $access = db()->prepare($insertIgnore . ' INTO child_access (child_id, user_id, can_view, can_create_record, can_edit_record, can_delete_record) VALUES (?, ?, 1, 1, 1, 1)');
-        foreach ($children->fetchAll() as $child) {
-            $access->execute([$child['id'], $userId]);
+        if ($grantChildAccess) {
+            $children = db()->prepare('SELECT id FROM children WHERE family_id = ?');
+            $children->execute([$familyId]);
+            $access = db()->prepare($insertIgnore . ' INTO child_access (child_id, user_id, can_view, can_create_record, can_edit_record, can_delete_record) VALUES (?, ?, 1, 1, 1, 1)');
+            foreach ($children->fetchAll() as $child) {
+                $access->execute([$child['id'], $userId]);
+            }
         }
         db()->prepare('UPDATE family_invitations SET accepted_at = ? WHERE family_id = ? AND invited_email = (SELECT email FROM users WHERE id = ?)')
             ->execute([now_sql(), $familyId, $userId]);
@@ -905,6 +951,33 @@ function family_members(int $familyId): array
     return $stmt->fetchAll();
 }
 
+function set_child_access_users(int $familyId, int $childId, array $userIds): void
+{
+    $stmt = db()->prepare('SELECT owner_user_id FROM families WHERE id = ? LIMIT 1');
+    $stmt->execute([$familyId]);
+    $ownerId = (int)$stmt->fetchColumn();
+    if ($ownerId <= 0) {
+        throw new RuntimeException('Rodina nebyla nalezena.');
+    }
+
+    $memberIds = array_map(fn($member) => (int)$member['user_id'], family_members($familyId));
+    $allowed = array_values(array_intersect(array_map('intval', $userIds), $memberIds));
+    $allowed[] = $ownerId;
+
+    db()->beginTransaction();
+    try {
+        db()->prepare('DELETE FROM child_access WHERE child_id = ?')->execute([$childId]);
+        $insert = db()->prepare('INSERT INTO child_access (child_id, user_id, can_view, can_create_record, can_edit_record, can_delete_record) VALUES (?, ?, 1, 1, 1, 1)');
+        foreach (array_unique($allowed) as $userId) {
+            $insert->execute([$childId, $userId]);
+        }
+        db()->commit();
+    } catch (Throwable $e) {
+        db()->rollBack();
+        throw $e;
+    }
+}
+
 function children_for_user(int $userId): array
 {
     $stmt = db()->prepare(
@@ -932,7 +1005,53 @@ function child_for_user(int $childId, int $userId): ?array
 function provider_value(array $row, string $key): ?string
 {
     $value = trim((string)($row[$key] ?? ''));
+    $value = ensure_utf8_text($value);
     return $value === '' ? null : $value;
+}
+
+function ensure_utf8_text(string $value): string
+{
+    if ($value === '' || preg_match('//u', $value)) {
+        return $value;
+    }
+    $converted = @iconv('Windows-1250', 'UTF-8//IGNORE', $value);
+    if ($converted !== false && $converted !== '') {
+        return $converted;
+    }
+    $converted = @iconv('CP1250', 'UTF-8//IGNORE', $value);
+    if ($converted !== false && $converted !== '') {
+        return $converted;
+    }
+    if (function_exists('mb_convert_encoding')) {
+        foreach (['CP1250', 'ISO-8859-2'] as $encoding) {
+            try {
+                $converted = mb_convert_encoding($value, 'UTF-8', $encoding);
+                if ($converted !== '') {
+                    return $converted;
+                }
+            } catch (ValueError $e) {
+                continue;
+            }
+        }
+    }
+    return $value;
+}
+
+function uppercase_first_letter(string $value): string
+{
+    $value = trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    if ($value === '') {
+        return '';
+    }
+    if (function_exists('mb_substr') && function_exists('mb_strtoupper')) {
+        return mb_strtoupper(mb_substr($value, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($value, 1, null, 'UTF-8');
+    }
+    return strtoupper(substr($value, 0, 1)) . substr($value, 1);
+}
+
+function normalize_provider_specialty(string $value): string
+{
+    return uppercase_first_letter($value);
 }
 
 function split_provider_specialties(?string $careField): array
@@ -941,14 +1060,53 @@ function split_provider_specialties(?string $careField): array
         return [];
     }
     $items = preg_split('/\s*,\s*/u', $careField) ?: [];
-    $items = array_map(fn($item) => trim($item), $items);
+    $items = array_map(fn($item) => normalize_provider_specialty((string)$item), $items);
     $items = array_filter($items, fn($item) => $item !== '');
     return array_values(array_unique($items));
 }
 
+function provider_base_source_id(array $row): ?string
+{
+    return provider_value($row, 'MistoPoskytovaniId') ?? provider_value($row, 'ZdravotnickeZarizeniId');
+}
+
+function provider_source_id(array $row): ?string
+{
+    $base = provider_base_source_id($row);
+    if (!$base) {
+        return null;
+    }
+    if (empty($row['__duplicate_source_id'])) {
+        return $base;
+    }
+
+    $parts = [
+        $base,
+        provider_value($row, 'ZdravotnickeZarizeniId') ?? '',
+        provider_value($row, 'PCZ') ?? '',
+        provider_value($row, 'PCDP') ?? '',
+        provider_value($row, 'NazevCely') ?? '',
+        provider_value($row, 'Obec') ?? '',
+        provider_value($row, 'Ulice') ?? '',
+        provider_value($row, 'CisloDomovniOrientacni') ?? '',
+    ];
+
+    return $base . ':' . substr(hash('sha256', implode('|', $parts)), 0, 16);
+}
+
+function delete_base_provider_source_ids(array $sourceIds): void
+{
+    $sourceIds = array_values(array_unique(array_filter($sourceIds, fn($id) => is_string($id) && $id !== '')));
+    foreach (array_chunk($sourceIds, 100) as $chunk) {
+        $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+        db()->prepare('DELETE FROM healthcare_providers WHERE source = ? AND source_id IN (' . $placeholders . ')')
+            ->execute(array_merge(['NRPZS'], $chunk));
+    }
+}
+
 function import_nrpzs_provider_row(array $row): bool
 {
-    $sourceId = provider_value($row, 'MistoPoskytovaniId') ?? provider_value($row, 'ZdravotnickeZarizeniId');
+    $sourceId = provider_source_id($row);
     $name = provider_value($row, 'NazevCely') ?? provider_value($row, 'PoskytovatelNazev');
     if (!$sourceId || !$name) {
         return false;
@@ -1033,6 +1191,7 @@ function import_nrpzs_provider_row(array $row): bool
     $stmt->execute(['NRPZS', $sourceId]);
     $providerId = (int)$stmt->fetchColumn();
     if ($providerId > 0) {
+        db()->prepare('DELETE FROM healthcare_provider_specialties WHERE provider_id = ?')->execute([$providerId]);
         $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
         $specialtyStmt = db()->prepare($insertIgnore . ' INTO healthcare_provider_specialties (provider_id, specialty) VALUES (?, ?)');
         foreach (split_provider_specialties(provider_value($row, 'OborPece')) as $specialty) {
@@ -1054,10 +1213,32 @@ function healthcare_provider_fields(): array
          FROM healthcare_provider_specialties
          WHERE specialty IS NOT NULL AND specialty <> ""
          GROUP BY specialty
-         ORDER BY specialty
          LIMIT 400'
     );
-    return $stmt->fetchAll();
+    $items = $stmt->fetchAll();
+    usort($items, fn($a, $b) => compare_czech_text((string)$a['care_field'], (string)$b['care_field']));
+    return $items;
+}
+
+function compare_czech_text(string $left, string $right): int
+{
+    if (class_exists('Collator')) {
+        static $collator = null;
+        if ($collator === null) {
+            $collator = new Collator('cs_CZ');
+        }
+        return $collator->compare($left, $right);
+    }
+    return strcasecmp(remove_czech_diacritics($left), remove_czech_diacritics($right));
+}
+
+function remove_czech_diacritics(string $value): string
+{
+    $map = [
+        'á' => 'a', 'č' => 'c', 'ď' => 'd', 'é' => 'e', 'ě' => 'e', 'í' => 'i', 'ň' => 'n', 'ó' => 'o', 'ř' => 'r', 'š' => 's', 'ť' => 't', 'ú' => 'u', 'ů' => 'u', 'ý' => 'y', 'ž' => 'z',
+        'Á' => 'A', 'Č' => 'C', 'Ď' => 'D', 'É' => 'E', 'Ě' => 'E', 'Í' => 'I', 'Ň' => 'N', 'Ó' => 'O', 'Ř' => 'R', 'Š' => 'S', 'Ť' => 'T', 'Ú' => 'U', 'Ů' => 'U', 'Ý' => 'Y', 'Ž' => 'Z',
+    ];
+    return strtr($value, $map);
 }
 
 function provider_specialties_sql(): string

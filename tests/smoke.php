@@ -109,7 +109,12 @@ assert_true(count($acceptedInvitations) === 1, 'pending invitation is accepted d
 assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test') === null, 'accepted invitation is no longer pending');
 $invitedFamily = current_family($invitedUserId);
 assert_true($invitedFamily && (int)$invitedFamily['id'] === (int)$family['id'], 'invited user joins inviter family');
-assert_true(child_for_user($childId, $invitedUserId) !== null, 'invited user gets child access');
+assert_true(child_for_user($childId, $invitedUserId) === null, 'invited user waits for explicit child access');
+set_child_access_users((int)$family['id'], $childId, [$invitedUserId]);
+assert_true(child_for_user($childId, $invitedUserId) !== null, 'owner can grant child access to invited user');
+set_child_access_users((int)$family['id'], $childId, []);
+assert_true(child_for_user($childId, $invitedUserId) === null, 'owner can revoke child access from invited user');
+set_child_access_users((int)$family['id'], $childId, [$invitedUserId]);
 assert_true(user_owned_family_count($userId) === 1, 'owner family count is detected');
 $ownerDeletionBlocked = false;
 try {
@@ -140,6 +145,21 @@ assert_true(strpos((string)$deletedUserRow['email'], 'deleted-user-' . $invitedU
 assert_true(child_for_user($childId, $invitedUserId) === null, 'deleted account loses child access');
 assert_true(current_family($invitedUserId) === null, 'deleted account loses family membership');
 
+$lateInvitation = create_family_invitation((int)$family['id'], $userId, 'treti.rodic@example.test');
+$lateUserId = create_user('treti.rodic@example.test', 'Třetí rodič', 'bezpecne-heslo-789');
+$pendingAfterRegistration = pending_family_invitations((int)$family['id']);
+$registeredInvitation = null;
+foreach ($pendingAfterRegistration as $item) {
+    if ($item['invited_email'] === 'treti.rodic@example.test') {
+        $registeredInvitation = $item;
+    }
+}
+assert_true($registeredInvitation && (int)$registeredInvitation['registered_user_id'] === $lateUserId, 'pending invitation detects already registered user');
+$acceptedRegistered = accept_registered_family_invitation((int)$family['id'], (int)$registeredInvitation['id']);
+assert_true($acceptedRegistered !== null, 'registered invited user can be added to family');
+assert_true(current_family($lateUserId) && (int)current_family($lateUserId)['id'] === (int)$family['id'], 'registered invited user becomes family member');
+assert_true(child_for_user($childId, $lateUserId) === null, 'registered invited user has no child access until owner grants it');
+
 $providerRow = [
     'MistoPoskytovaniId' => 'test-provider-1',
     'NazevCely' => 'Dětská ordinace Test',
@@ -163,15 +183,28 @@ $providerRow = [
 ];
 assert_true(import_nrpzs_provider_row($providerRow), 'provider row is imported');
 $fields = array_column(healthcare_provider_fields(), 'care_field');
-assert_true(in_array('praktické lékařství pro děti a dorost', $fields, true), 'first provider specialty is indexed');
-assert_true(in_array('alergologie a klinická imunologie', $fields, true), 'second provider specialty is indexed');
-$providers = search_healthcare_providers('Dětská', 'alergologie a klinická imunologie', 'Praha');
+assert_true(in_array('Praktické lékařství pro děti a dorost', $fields, true), 'first provider specialty is indexed with uppercase initial');
+assert_true(in_array('Alergologie a klinická imunologie', $fields, true), 'second provider specialty is indexed with uppercase initial');
+$providers = search_healthcare_providers('Dětská', 'Alergologie a klinická imunologie', 'Praha');
 assert_true(count($providers) === 1, 'provider search finds imported provider');
-assert_true(strpos((string)$providers[0]['specialties'], 'praktické lékařství pro děti a dorost') !== false, 'provider result includes all specialties');
+assert_true(strpos((string)$providers[0]['specialties'], 'Praktické lékařství pro děti a dorost') !== false, 'provider result includes all specialties');
 add_child_doctor($childId, (int)$providers[0]['id'], 'Pediatr');
 $doctors = child_doctors($childId);
 assert_true(count($doctors) === 1 && $doctors[0]['role_label'] === 'Pediatr', 'doctor can be assigned to child');
 assert_true(remove_child_doctor($childId, (int)$doctors[0]['id']) !== null, 'doctor can be removed from child');
+
+$duplicateProviderA = $providerRow;
+$duplicateProviderB = $providerRow;
+$duplicateProviderA['MistoPoskytovaniId'] = 'dup-provider-1';
+$duplicateProviderB['MistoPoskytovaniId'] = 'dup-provider-1';
+$duplicateProviderA['NazevCely'] = 'Duplicitní ordinace A';
+$duplicateProviderB['NazevCely'] = 'Duplicitní ordinace B';
+$duplicateProviderA['__duplicate_source_id'] = true;
+$duplicateProviderB['__duplicate_source_id'] = true;
+assert_true(import_nrpzs_provider_row($duplicateProviderA), 'first duplicate provider row is imported');
+assert_true(import_nrpzs_provider_row($duplicateProviderB), 'second duplicate provider row is imported');
+$duplicateResults = search_healthcare_providers('Duplicitní ordinace', '', 'Praha');
+assert_true(count($duplicateResults) === 2, 'duplicate source ids keep both provider rows');
 
 @unlink($dbPath);
 echo "OK\n";

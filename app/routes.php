@@ -50,6 +50,7 @@ function dispatch(): void
         case 'family_delete': action_family_delete(); break;
         case 'member_add': action_member_add(); break;
         case 'invitation_cancel': action_invitation_cancel(); break;
+        case 'invitation_accept_registered': action_invitation_accept_registered(); break;
         case 'member_remove': action_member_remove(); break;
         case 'access_save': action_access_save(); break;
         case 'export': page_export(); break;
@@ -740,9 +741,7 @@ function action_child_create(): void
         $stmt->execute([$family['id'], $first, $last, $dob, $weight, $allergies]);
         $childId = (int)db()->lastInsertId();
         $access = db()->prepare('INSERT INTO child_access (child_id, user_id, can_view, can_create_record, can_edit_record, can_delete_record) VALUES (?, ?, 1, 1, 1, 1)');
-        foreach (family_members((int)$family['id']) as $member) {
-            $access->execute([$childId, $member['user_id']]);
-        }
+        $access->execute([$childId, $family['owner_user_id']]);
         db()->commit();
         audit_log('child.created', (int)$user['id'], (int)$family['id'], 'child', $childId);
         flash('success', 'Dítě bylo přidáno.');
@@ -974,11 +973,11 @@ function page_child(): void
                     věk <?= e(child_age_label($child['date_of_birth'])) ?>
                 </p>
             </div>
-            <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export pro lékaře</a>
         </div>
 
         <div class="actions child-actions">
             <a class="button" href="#child-edit">Upravit dítě</a>
+            <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
             <?php if ($family): ?>
                 <form method="post" action="<?= e(url('child_delete')) ?>" data-confirm="Smazání dítěte odstraní i všechny zdravotní záznamy.">
                     <?= csrf_field() ?>
@@ -1565,8 +1564,9 @@ function page_family(): void
     $members = family_members((int)$family['id']);
     $pendingInvitations = pending_family_invitations((int)$family['id']);
     $children = children_for_user((int)$user['id']);
+    $isOwner = ($family['role'] ?? '') === 'OWNER';
 
-    render_layout('Rodina', function () use ($family, $members, $pendingInvitations, $children) {
+    render_layout('Rodina', function () use ($family, $members, $pendingInvitations, $children, $isOwner) {
         ?>
         <div class="page-head"><h1>Rodina</h1></div>
         <section class="panel">
@@ -1584,7 +1584,7 @@ function page_family(): void
 
         <section class="panel">
             <h2>Rodiče</h2>
-            <?php if (($family['role'] ?? '') === 'OWNER'): ?>
+            <?php if ($isOwner): ?>
                 <form method="post" action="<?= e(url('member_add')) ?>" class="inline-form">
                     <?= csrf_field() ?>
                     <input required type="email" name="email" placeholder="E-mail existujícího účtu">
@@ -1596,7 +1596,7 @@ function page_family(): void
                     <div class="list-row">
                         <span><?= e($member['display_name']) ?> <small><?= e($member['email']) ?></small></span>
                         <small><?= e(role_label($member['role'])) ?></small>
-                        <?php if ($member['role'] !== 'OWNER'): ?>
+                        <?php if ($isOwner && $member['role'] !== 'OWNER'): ?>
                             <form method="post" action="<?= e(url('member_remove')) ?>" data-confirm="Odebrat rodiče z rodiny?">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="user_id" value="<?= e($member['user_id']) ?>">
@@ -1607,7 +1607,7 @@ function page_family(): void
                 <?php endforeach; ?>
             </div>
 
-            <?php if (($family['role'] ?? '') === 'OWNER' && $pendingInvitations): ?>
+            <?php if ($isOwner && $pendingInvitations): ?>
                 <div class="subsection">
                     <h3>Odeslané pozvánky</h3>
                     <div class="list">
@@ -1619,15 +1619,26 @@ function page_family(): void
                                         Odesláno <?= e(display_datetime($invitation['created_at'])) ?>
                                         <?php if (!empty($invitation['registered_at'])): ?>
                                             · uživatel se registroval
+                                        <?php elseif (!empty($invitation['registered_user_id'])): ?>
+                                            · účet už existuje
                                         <?php endif; ?>
                                     </small>
                                 </span>
                                 <small>Pozval <?= e($invitation['inviter_name']) ?></small>
-                                <form method="post" action="<?= e(url('invitation_cancel')) ?>" data-confirm="Zrušit tuto pozvánku?">
-                                    <?= csrf_field() ?>
-                                    <input type="hidden" name="invitation_id" value="<?= e($invitation['id']) ?>">
-                                    <button class="button tiny danger" type="submit">Zrušit</button>
-                                </form>
+                                <div class="actions">
+                                    <?php if (!empty($invitation['registered_user_id'])): ?>
+                                        <form method="post" action="<?= e(url('invitation_accept_registered')) ?>">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="invitation_id" value="<?= e($invitation['id']) ?>">
+                                            <button class="button tiny primary" type="submit">Přidat do rodiny</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <form method="post" action="<?= e(url('invitation_cancel')) ?>" data-confirm="Zrušit tuto pozvánku?">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="invitation_id" value="<?= e($invitation['id']) ?>">
+                                        <button class="button tiny danger" type="submit">Zrušit</button>
+                                    </form>
+                                </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -1635,7 +1646,7 @@ function page_family(): void
             <?php endif; ?>
         </section>
 
-        <?php if ($family): ?>
+        <?php if ($family && $isOwner): ?>
             <section class="panel">
                 <h2>Přístupy k dětem</h2>
                 <?php foreach ($children as $child): ?>
@@ -1654,8 +1665,13 @@ function page_family(): void
                     </form>
                 <?php endforeach; ?>
             </section>
+        <?php elseif ($family): ?>
+            <section class="panel">
+                <h2>Přístupy k dětem</h2>
+                <p class="muted">Přístupy k dětem spravuje vlastník rodiny.</p>
+            </section>
         <?php endif; ?>
-        <?php if (($family['role'] ?? '') === 'OWNER'): ?>
+        <?php if ($isOwner): ?>
             <section class="panel danger-zone">
                 <h2>Zrušit rodinu</h2>
                 <p class="muted">Zrušení rodiny smaže děti, zdravotní záznamy, číselníky a rodičovské role v této rodině. Uživatelské účty zůstanou zachované.</p>
@@ -1695,6 +1711,7 @@ function action_member_add(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
+    require_owner($family);
     $email = text_lower(trim($_POST['email'] ?? ''));
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         flash('error', 'Zadejte platný e-mail.');
@@ -1749,10 +1766,28 @@ function action_invitation_cancel(): void
     redirect('family');
 }
 
+function action_invitation_accept_registered(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    require_owner($family);
+
+    $accepted = accept_registered_family_invitation((int)$family['id'], (int)($_POST['invitation_id'] ?? 0));
+    if (!$accepted) {
+        flash('error', 'Pozvaný uživatel zatím nemá aktivní účet nebo pozvánka už není aktivní.');
+        redirect('family');
+    }
+
+    audit_log('family.member_added_from_invitation', (int)$user['id'], (int)$family['id'], 'user', (int)$accepted['user']['id']);
+    flash('success', 'Rodič byl přidán do rodiny. Přístupy k dětem mu nastavíte níže.');
+    redirect('family');
+}
+
 function action_member_remove(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
+    require_owner($family);
     $removedUserId = (int)($_POST['user_id'] ?? 0);
     if ($removedUserId === (int)$family['owner_user_id']) {
         flash('error', 'Vlastníka rodiny nelze odebrat.');
@@ -1778,26 +1813,11 @@ function action_access_save(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
+    require_owner($family);
     $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
-    $allowed = array_map('intval', $_POST['user_ids'] ?? []);
-    $memberIds = array_map(fn($member) => (int)$member['user_id'], family_members((int)$family['id']));
-    $allowed = array_values(array_intersect($allowed, $memberIds));
-    $ownerId = (int)$family['owner_user_id'];
-    $allowed[] = $ownerId;
 
-    db()->beginTransaction();
-    try {
-        db()->prepare('DELETE FROM child_access WHERE child_id = ?')->execute([$child['id']]);
-        $stmt = db()->prepare('INSERT INTO child_access (child_id, user_id, can_view, can_create_record, can_edit_record, can_delete_record) VALUES (?, ?, 1, 1, 1, 1)');
-        foreach (array_unique($allowed) as $userId) {
-            $stmt->execute([$child['id'], $userId]);
-        }
-        db()->commit();
-        audit_log('child.access_updated', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
-    } catch (Throwable $e) {
-        db()->rollBack();
-        throw $e;
-    }
+    set_child_access_users((int)$family['id'], (int)$child['id'], $_POST['user_ids'] ?? []);
+    audit_log('child.access_updated', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
     flash('success', 'Přístupy byly uloženy.');
     redirect('family');
 }
