@@ -404,6 +404,11 @@ textarea {
     margin: -0.3rem 0 1.2rem;
 }
 
+.child-actions .button,
+.child-overview-head .actions .button {
+    min-width: 9.5rem;
+}
+
 .overview-list {
     display: grid;
     gap: 1rem;
@@ -580,6 +585,14 @@ textarea {
 
 .admin-row strong {
     overflow-wrap: anywhere;
+}
+
+.admin-row .actions .button {
+    min-width: 5.8rem;
+}
+
+.admin-row .actions form {
+    display: inline-flex;
 }
 
 table {

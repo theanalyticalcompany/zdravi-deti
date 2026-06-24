@@ -8,16 +8,26 @@ document.querySelectorAll('form[data-confirm]').forEach((form) => {
 });
 
 document.querySelectorAll('[data-dialog-open]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', (event) => {
         const dialog = document.getElementById(button.getAttribute('data-dialog-open'));
         if (dialog && typeof dialog.showModal === 'function') {
+            event.preventDefault();
+            if (dialog.hasAttribute('open')) {
+                dialog.removeAttribute('open');
+            }
             dialog.showModal();
+        } else if (dialog) {
+            event.preventDefault();
+            dialog.setAttribute('open', '');
         }
     });
 });
 
 document.querySelectorAll('dialog[data-open-on-load]').forEach((dialog) => {
     if (typeof dialog.showModal === 'function') {
+        if (dialog.hasAttribute('open')) {
+            dialog.removeAttribute('open');
+        }
         dialog.showModal();
     }
 });

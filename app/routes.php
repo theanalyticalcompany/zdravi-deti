@@ -924,7 +924,7 @@ function page_child(): void
         <div class="actions child-actions">
             <a class="button" href="#child-edit">Upravit dítě</a>
             <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-            <button class="button" type="button" data-dialog-open="documents-dialog">Dokumentace</button>
+            <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" data-dialog-open="documents-dialog">Dokumentace</a>
             <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export pro lékaře</a>
         </div>
 
@@ -938,7 +938,7 @@ function page_child(): void
             $documentProviderOptions[$providerId] = $provider;
         }
         ?>
-        <dialog class="modal document-modal" id="documents-dialog" <?= $openDocuments ? 'data-open-on-load="1"' : '' ?>>
+        <dialog class="modal document-modal" id="documents-dialog" <?= $openDocuments ? 'open data-open-on-load="1"' : '' ?>>
             <div class="modal-head">
                 <div>
                     <h2>Dokumentace</h2>
