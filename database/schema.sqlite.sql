@@ -260,3 +260,23 @@ CREATE TABLE child_doctors (
 );
 
 CREATE INDEX idx_child_doctors_child ON child_doctors(child_id);
+
+CREATE TABLE child_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    child_id INTEGER NOT NULL,
+    provider_id INTEGER NULL,
+    title TEXT NOT NULL,
+    note TEXT NULL,
+    original_filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    uploaded_by_user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+    FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_child_documents_child ON child_documents(child_id);
+CREATE INDEX idx_child_documents_provider ON child_documents(provider_id);

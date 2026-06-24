@@ -21,12 +21,15 @@ function dispatch(): void
         case 'google_callback': action_google_callback(); break;
         case 'settings': page_settings(); break;
         case 'account_delete': action_account_delete(); break;
-        case 'devices': page_devices(); break;
+        case 'devices': redirect('settings'); break;
         case 'device_revoke': action_device_revoke(); break;
         case 'devices_revoke_others': action_devices_revoke_others(); break;
         case 'dashboard': page_dashboard(); break;
         case 'children': page_children(); break;
         case 'child': page_child(); break;
+        case 'document_upload': action_document_upload(); break;
+        case 'document_download': action_document_download(); break;
+        case 'document_delete': action_document_delete(); break;
         case 'child_doctors': page_child_doctors(); break;
         case 'child_doctor_add': action_child_doctor_add(); break;
         case 'child_doctor_remove': action_child_doctor_remove(); break;
@@ -251,7 +254,7 @@ function page_register(): void
                 send_app_email(
                     $invitation['inviter_email'],
                     'Pozvaný rodič byl přidán do rodiny',
-                    "Dobrý den,\n\nuživatel {$email} se zaregistroval do aplikace Zdraví dětí a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit na stránce Rodina:\n\n" . app_base_url() . '/?r=family'
+                    "Dobrý den,\n\nuživatel {$email} se zaregistroval do aplikace Zdraví dětí a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit ve Správě rodiny:\n\n" . app_base_url() . '/?r=family'
                 );
             }
             $family = current_family($userId) ?: ensure_family($userId, $name);
@@ -360,7 +363,7 @@ function action_google_callback(): void
             send_app_email(
                 $invitation['inviter_email'],
                 'Pozvaný rodič byl přidán do rodiny',
-                "Dobrý den,\n\nuživatel {$info['email']} se přihlásil přes Google a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit na stránce Rodina:\n\n" . app_base_url() . '/?r=family'
+                "Dobrý den,\n\nuživatel {$info['email']} se přihlásil přes Google a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit ve Správě rodiny:\n\n" . app_base_url() . '/?r=family'
             );
         }
         audit_log('auth.google_registered', $userId, null, 'user', $userId, ['invitation_count' => count($invitations)]);
@@ -381,17 +384,18 @@ function page_settings(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
-    $ownedFamilyCount = user_owned_family_count((int)$user['id']);
+    $isCurrentFamilyOwner = ($family['role'] ?? '') === 'OWNER';
     $hasPassword = !empty($user['password_hash']);
+    $sessions = active_user_sessions((int)$user['id']);
+    $currentHash = current_session_hash();
 
-    render_layout('Nastavení', function () use ($user, $family, $ownedFamilyCount, $hasPassword) {
+    render_layout('Nastavení', function () use ($user, $family, $isCurrentFamilyOwner, $hasPassword, $sessions, $currentHash) {
         ?>
         <div class="page-head">
             <div>
                 <h1>Nastavení</h1>
                 <p class="muted">Účet, přihlášení a citlivé akce.</p>
             </div>
-            <a class="button" href="<?= e(url('devices')) ?>">Aktivní zařízení</a>
         </div>
 
         <section class="panel">
@@ -410,91 +414,20 @@ function page_settings(): void
             </dl>
         </section>
 
-        <section class="panel danger-zone">
+        <section class="panel">
             <div class="section-head">
                 <div>
-                    <h2>Smazání účtu</h2>
-                    <p class="muted">Smaže osobní údaje účtu, odhlásí všechna zařízení a odebere přístup k rodině a dětem. Historické zdravotní záznamy zůstanou v rodině zachované.</p>
+                    <h2>Aktivní zařízení</h2>
+                    <p class="muted">Přehled prohlížečů a zařízení, kde je váš účet přihlášený.</p>
                 </div>
+                <?php if (count($sessions) > 1): ?>
+                    <form method="post" action="<?= e(url('devices_revoke_others')) ?>" data-confirm="Odhlásit všechna ostatní zařízení?">
+                        <?= csrf_field() ?>
+                        <button class="button danger" type="submit">Odhlásit ostatní</button>
+                    </form>
+                <?php endif; ?>
             </div>
 
-            <?php if ($ownedFamilyCount > 0): ?>
-                <div class="empty">
-                    Tento účet je vlastníkem rodiny. Nejdříve zrušte rodinu na stránce Rodina, nebo vlastnictví v budoucnu předejte jinému rodiči.
-                </div>
-            <?php else: ?>
-                <form method="post" action="<?= e(url('account_delete')) ?>" class="stack" data-confirm="Opravdu chcete smazat svůj účet? Tato akce odhlásí všechna zařízení a nejde vrátit zpět.">
-                    <?= csrf_field() ?>
-                    <?php if ($hasPassword): ?>
-                        <label>Aktuální heslo <input required type="password" name="current_password" autocomplete="current-password"></label>
-                    <?php endif; ?>
-                    <label class="check">
-                        <input required type="checkbox" name="confirm_delete" value="1">
-                        <span>Rozumím, že účet bude anonymizován a ztratím přístup k rodině.</span>
-                    </label>
-                    <button class="button danger" type="submit">Smazat můj účet</button>
-                </form>
-            <?php endif; ?>
-        </section>
-        <?php
-    }, 'settings');
-}
-
-function action_account_delete(): void
-{
-    $user = require_login();
-    $family = current_family((int)$user['id']);
-
-    if (($_POST['confirm_delete'] ?? '') !== '1') {
-        flash('error', 'Potvrďte prosím smazání účtu.');
-        redirect('settings');
-    }
-    if (user_owned_family_count((int)$user['id']) > 0) {
-        flash('error', 'Účet vlastníka rodiny nejde smazat, dokud rodina existuje.');
-        redirect('settings');
-    }
-    if (!empty($user['password_hash'])) {
-        $password = (string)($_POST['current_password'] ?? '');
-        if (!password_verify($password, (string)$user['password_hash'])) {
-            audit_log('auth.account_delete_password_failed', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
-            flash('error', 'Aktuální heslo nesedí.');
-            redirect('settings');
-        }
-    }
-
-    audit_log('auth.account_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
-    delete_user_account((int)$user['id']);
-    $_SESSION = [];
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_destroy();
-        session_start();
-    }
-    flash('success', 'Účet byl smazán.');
-    redirect('login');
-}
-
-function page_devices(): void
-{
-    $user = require_login();
-    $sessions = active_user_sessions((int)$user['id']);
-    $currentHash = current_session_hash();
-
-    render_layout('Aktivní zařízení', function () use ($sessions, $currentHash) {
-        ?>
-        <div class="page-head">
-            <div>
-                <h1>Aktivní zařízení</h1>
-                <p class="muted">Přehled prohlížečů a zařízení, kde je váš účet přihlášený.</p>
-            </div>
-            <?php if (count($sessions) > 1): ?>
-                <form method="post" action="<?= e(url('devices_revoke_others')) ?>" data-confirm="Odhlásit všechna ostatní zařízení?">
-                    <?= csrf_field() ?>
-                    <button class="button danger" type="submit">Odhlásit ostatní</button>
-                </form>
-            <?php endif; ?>
-        </div>
-
-        <section class="panel">
             <?php if (!$sessions): ?>
                 <div class="empty">Aktuálně není evidované žádné aktivní zařízení.</div>
             <?php else: ?>
@@ -528,8 +461,73 @@ function page_devices(): void
                 </div>
             <?php endif; ?>
         </section>
+
+        <section class="panel danger-zone">
+            <div class="section-head">
+                <div>
+                    <h2>Smazání účtu</h2>
+                    <p class="muted">Smaže osobní údaje účtu, odhlásí všechna zařízení a odebere přístup k rodině a dětem. Pokud jste v rodině jen rodič, rodina i zdravotní záznamy dětí zůstanou zachované.</p>
+                </div>
+            </div>
+
+            <?php if ($isCurrentFamilyOwner): ?>
+                <div class="empty">
+                    Tento účet je vlastníkem rodiny. Nejdříve zrušte rodinu ve Správě rodiny, nebo vlastnictví v budoucnu předejte jinému rodiči.
+                </div>
+            <?php else: ?>
+                <form method="post" action="<?= e(url('account_delete')) ?>" class="stack" data-confirm="Opravdu chcete smazat svůj účet? Tato akce odhlásí všechna zařízení a nejde vrátit zpět.">
+                    <?= csrf_field() ?>
+                    <?php if ($hasPassword): ?>
+                        <label>Aktuální heslo <input required type="password" name="current_password" autocomplete="current-password"></label>
+                    <?php endif; ?>
+                    <label class="check">
+                        <input required type="checkbox" name="confirm_delete" value="1">
+                        <span>Rozumím, že účet bude anonymizován a ztratím přístup k rodině a dětem.</span>
+                    </label>
+                    <button class="button danger" type="submit">Smazat můj účet</button>
+                </form>
+            <?php endif; ?>
+        </section>
         <?php
-    }, 'devices');
+    }, 'settings');
+}
+
+function action_account_delete(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+
+    if (($_POST['confirm_delete'] ?? '') !== '1') {
+        flash('error', 'Potvrďte prosím smazání účtu.');
+        redirect('settings');
+    }
+    if (($family['role'] ?? '') === 'OWNER') {
+        flash('error', 'Účet vlastníka rodiny nejde smazat, dokud rodina existuje.');
+        redirect('settings');
+    }
+    if (!empty($user['password_hash'])) {
+        $password = (string)($_POST['current_password'] ?? '');
+        if (!password_verify($password, (string)$user['password_hash'])) {
+            audit_log('auth.account_delete_password_failed', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
+            flash('error', 'Aktuální heslo nesedí.');
+            redirect('settings');
+        }
+    }
+
+    audit_log('auth.account_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'user', (int)$user['id']);
+    delete_user_account((int)$user['id']);
+    $_SESSION = [];
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_destroy();
+        session_start();
+    }
+    flash('success', 'Účet byl smazán.');
+    redirect('login');
+}
+
+function page_devices(): void
+{
+    redirect('settings');
 }
 
 function action_device_revoke(): void
@@ -538,11 +536,11 @@ function action_device_revoke(): void
     $session = revoke_user_session((int)$user['id'], (int)($_POST['session_id'] ?? 0));
     if (!$session) {
         flash('error', 'Zařízení se nepodařilo najít nebo jde o aktuální přihlášení.');
-        redirect('devices');
+        redirect('settings');
     }
     audit_log('auth.device_revoked', (int)$user['id'], null, 'user_session', (int)$session['id']);
     flash('success', 'Zařízení bylo odhlášeno.');
-    redirect('devices');
+    redirect('settings');
 }
 
 function action_devices_revoke_others(): void
@@ -551,7 +549,7 @@ function action_devices_revoke_others(): void
     $count = revoke_other_user_sessions((int)$user['id']);
     audit_log('auth.devices_revoked_others', (int)$user['id'], null, 'user_session', null, ['count' => $count]);
     flash('success', 'Ostatní zařízení byla odhlášena.');
-    redirect('devices');
+    redirect('settings');
 }
 
 function page_dashboard(): void
@@ -575,14 +573,14 @@ function page_dashboard(): void
                 <h1>Přehled</h1>
                 <p class="muted">Aktuální zdravotní historie všech dětí, ke kterým máte přístup.</p>
             </div>
-            <a class="button" href="<?= e(url('children')) ?>">Správa dětí</a>
+            <a class="button" href="<?= e(url('family')) ?>">Správa rodiny</a>
         </div>
 
         <?php if (!$overview): ?>
             <section class="panel">
-                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat ve správě dětí.</div>
+                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat ve správě rodiny.</div>
                 <div class="panel-actions">
-                    <a class="button primary" href="<?= e(url('children')) ?>">Přejít na správu dětí</a>
+                    <a class="button primary" href="<?= e(url('family')) ?>">Přejít na správu rodiny</a>
                 </div>
             </section>
         <?php else: ?>
@@ -604,7 +602,8 @@ function page_dashboard(): void
                                 </p>
                             </div>
                             <div class="actions">
-                                <a class="button" href="<?= e(url('child', ['id' => $child['id']])) ?>">Otevřít dítě</a>
+                                <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>">Dokumenty</a>
+                                <a class="button" href="<?= e(url('child', ['id' => $child['id']])) ?>">Detail dítěte</a>
                                 <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export</a>
                             </div>
                         </div>
@@ -651,68 +650,7 @@ function page_dashboard(): void
 
 function page_children(): void
 {
-    $user = require_login();
-    $family = ensure_family((int)$user['id'], $user['display_name']);
-    $children = children_for_user((int)$user['id']);
-
-    render_layout('Správa dětí', function () use ($children, $family) {
-        ?>
-        <div class="page-head">
-            <div>
-                <h1>Správa dětí</h1>
-                <p class="muted">Základní údaje, váha, alergie a přístup k úpravám profilu.</p>
-            </div>
-        </div>
-        <section class="panel">
-            <h2>Profily dětí</h2>
-            <?php if (!$children): ?>
-                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat níže.</div>
-            <?php else: ?>
-                <div class="admin-list">
-                    <?php foreach ($children as $child): ?>
-                        <div class="admin-row">
-                            <div>
-                                <strong><?= e($child['first_name'] . ' ' . $child['last_name']) ?></strong>
-                                <small>
-                                    narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
-                                    věk <?= e(child_age_label($child['date_of_birth'])) ?>
-                                </small>
-                            </div>
-                            <div>
-                                <span class="muted">Váha</span>
-                                <strong><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></strong>
-                            </div>
-                            <div>
-                                <span class="muted">Alergie</span>
-                                <strong><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></strong>
-                            </div>
-                            <div class="actions">
-                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>#child-edit">Upravit</a>
-                                <a class="button tiny" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-                                <a class="button tiny" href="<?= e(url('family')) ?>">Přístupy</a>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </section>
-
-        <?php if ($family): ?>
-            <section class="panel">
-                <h2>Přidat dítě</h2>
-                <form method="post" action="<?= e(url('child_create')) ?>" class="form-grid">
-                    <?= csrf_field() ?>
-                    <label>Jméno <input required name="first_name"></label>
-                    <label>Příjmení <input required name="last_name"></label>
-                    <label>Datum narození <input required type="date" name="date_of_birth" max="<?= e(date('Y-m-d')) ?>"></label>
-                    <label>Váha kg <input type="number" step="0.1" min="0" max="200" name="weight_kg" inputmode="decimal"></label>
-                    <label class="wide-field">Alergie <textarea name="allergies" rows="2" placeholder="Například penicilin, ořechy, pyl"></textarea></label>
-                    <button class="button primary" type="submit">Přidat dítě</button>
-                </form>
-            </section>
-        <?php endif; ?>
-        <?php
-    }, 'children');
+    redirect('family');
 }
 
 function action_child_create(): void
@@ -727,12 +665,12 @@ function action_child_create(): void
         $weight = normalize_child_weight($_POST['weight_kg'] ?? '');
     } catch (InvalidArgumentException $e) {
         flash('error', $e->getMessage());
-        redirect('children');
+        redirect('family');
     }
     $allergies = trim($_POST['allergies'] ?? '');
     if ($first === '' || $last === '' || !$dob || $dob > date('Y-m-d')) {
         flash('error', 'Zkontrolujte jméno, příjmení a datum narození.');
-        redirect('children');
+        redirect('family');
     }
 
     db()->beginTransaction();
@@ -825,12 +763,12 @@ function page_child_doctors(): void
         ?>
         <div class="page-head">
             <div>
-                <h1>Lékaři dítěte</h1>
-                <p class="muted"><?= e($child['first_name'] . ' ' . $child['last_name']) ?> · číselník NRPZS: <?= e(number_format($providerCount, 0, ',', ' ')) ?> záznamů</p>
+                <h1>Lékaři dítěte <span class="title-inline-name"><?= e($child['first_name'] . ' ' . $child['last_name']) ?></span></h1>
+                <p class="muted">Data z Národního registru Poskytovatelů Zdravotnických služeb. Data nemusí být aktuální.</p>
             </div>
             <div class="actions">
-                <a class="button" href="<?= e(url('children')) ?>">Zpět na správu</a>
-                <a class="button" href="<?= e(url('child', ['id' => $child['id']])) ?>">Otevřít dítě</a>
+                <a class="button" href="<?= e(url('family')) ?>">Zpět na správu rodiny</a>
+                <a class="button" href="<?= e(url('child', ['id' => $child['id']])) ?>">Detail dítěte</a>
             </div>
         </div>
 
@@ -915,7 +853,7 @@ function page_child_doctors(): void
             <?php endif; ?>
         </section>
         <?php
-    }, 'children');
+    }, 'family');
 }
 
 function action_child_doctor_add(): void
@@ -961,8 +899,16 @@ function page_child(): void
     $records = child_records((int)$child['id']);
     $medications = medications((int)$family['id'], true);
     $careTypes = record_types((int)$family['id'], 'CARE');
+    $documents = child_documents((int)$child['id']);
+    $childDoctors = child_doctors((int)$child['id']);
+    $documentFields = healthcare_provider_fields();
+    $documentProviderQuery = trim((string)($_GET['document_provider_q'] ?? ''));
+    $documentProviderCareField = trim((string)($_GET['document_provider_care_field'] ?? ''));
+    $documentProviderCity = trim((string)($_GET['document_provider_city'] ?? ''));
+    $documentProviderResults = search_healthcare_providers($documentProviderQuery, $documentProviderCareField, $documentProviderCity, 50);
+    $openDocuments = ($_GET['documents'] ?? '') === '1';
 
-    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range) {
+    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments) {
         $last = $summary['last_temperature'];
         ?>
         <div class="page-head">
@@ -978,15 +924,107 @@ function page_child(): void
         <div class="actions child-actions">
             <a class="button" href="#child-edit">Upravit dítě</a>
             <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-            <?php if ($family): ?>
-                <form method="post" action="<?= e(url('child_delete')) ?>" data-confirm="Smazání dítěte odstraní i všechny zdravotní záznamy.">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                    <button class="button danger" type="submit">Smazat dítě</button>
-                </form>
-            <?php endif; ?>
+            <button class="button" type="button" data-dialog-open="documents-dialog">Dokumentace</button>
             <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export pro lékaře</a>
         </div>
+
+        <?php
+        $documentProviderOptions = [];
+        foreach (array_merge($childDoctors, $documentProviderResults) as $provider) {
+            $providerId = (int)($provider['provider_id'] ?? $provider['id'] ?? 0);
+            if ($providerId <= 0 || isset($documentProviderOptions[$providerId])) {
+                continue;
+            }
+            $documentProviderOptions[$providerId] = $provider;
+        }
+        ?>
+        <dialog class="modal document-modal" id="documents-dialog" <?= $openDocuments ? 'data-open-on-load="1"' : '' ?>>
+            <div class="modal-head">
+                <div>
+                    <h2>Dokumentace</h2>
+                    <p class="muted"><?= e($child['first_name'] . ' ' . $child['last_name']) ?></p>
+                </div>
+                <button class="button subtle" type="button" data-dialog-close>Zavřít</button>
+            </div>
+
+            <section class="subsection document-section">
+                <h3>Uložené dokumenty</h3>
+                <?php if (!$documents): ?>
+                    <div class="empty">Zatím není uložený žádný dokument.</div>
+                <?php else: ?>
+                    <div class="document-list">
+                        <?php foreach ($documents as $document): ?>
+                            <div class="document-row">
+                                <div>
+                                    <strong><?= e($document['title']) ?></strong>
+                                    <small>
+                                        <?= e($document['original_filename']) ?> · <?= e(file_size_label((int)$document['size_bytes'])) ?> · <?= e(display_datetime($document['created_at'])) ?>
+                                    </small>
+                                    <?php if (!empty($document['provider_name'])): ?>
+                                        <small><?= e($document['provider_name']) ?>, <?= e(provider_specialty_label($document)) ?></small>
+                                    <?php endif; ?>
+                                    <?php if (!empty($document['note'])): ?>
+                                        <small><?= e($document['note']) ?></small>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="actions">
+                                    <a class="button tiny" href="<?= e(url('document_download', ['id' => $document['id']])) ?>">Stáhnout</a>
+                                    <form method="post" action="<?= e(url('document_delete')) ?>" data-confirm="Smazat dokument?">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="document_id" value="<?= e($document['id']) ?>">
+                                        <button class="button tiny danger" type="submit">Smazat</button>
+                                    </form>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </section>
+
+            <section class="subsection document-section">
+                <h3>Vybrat lékaře z NRPZS</h3>
+                <form method="get" class="provider-search compact-search">
+                    <input type="hidden" name="r" value="child">
+                    <input type="hidden" name="id" value="<?= e($child['id']) ?>">
+                    <input type="hidden" name="documents" value="1">
+                    <label>Obor
+                        <select name="document_provider_care_field">
+                            <option value="">Všechny obory</option>
+                            <?php foreach ($documentFields as $field): ?>
+                                <option value="<?= e($field['care_field']) ?>" <?= $field['care_field'] === $documentProviderCareField ? 'selected' : '' ?>>
+                                    <?= e($field['care_field']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Město <input name="document_provider_city" value="<?= e($documentProviderCity) ?>" placeholder="např. Praha"></label>
+                    <label>Hledat <input name="document_provider_q" value="<?= e($documentProviderQuery) ?>" placeholder="jméno, zařízení, ulice"></label>
+                    <button class="button" type="submit">Hledat</button>
+                </form>
+            </section>
+
+            <section class="subsection document-section">
+                <h3>Nahrát nový dokument</h3>
+                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                    <label>Název <input required name="title" maxlength="255" placeholder="Např. zpráva z pohotovosti"></label>
+                    <label>Lékař
+                        <select name="provider_id">
+                            <option value="">Bez vazby na lékaře</option>
+                            <?php foreach ($documentProviderOptions as $providerId => $provider): ?>
+                                <option value="<?= e($providerId) ?>">
+                                    <?= e(trim(($provider['name'] ?? $provider['provider_name'] ?? 'Lékař') . ' · ' . (provider_specialty_label($provider) ?: 'bez oboru') . ' · ' . provider_address_label($provider), ' ·')) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Poznámka <textarea name="note" rows="3" placeholder="Krátký kontext, závěr, doporučení"></textarea></label>
+                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.pdf,.doc,.docx,.txt"></label>
+                    <button class="button primary" type="submit">Uložit dokument</button>
+                </form>
+            </section>
+        </dialog>
 
         <section class="metrics">
             <?php metric_card('Poslední teplota', $last ? number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C' : '-', $last ? display_datetime($last['event_at']) : '', severity($last ? (float)$last['temperature_celsius'] : null)); ?>
@@ -1172,6 +1210,136 @@ function record_detail_label(array $record): string
     }
 }
 
+function action_document_upload(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
+    $title = trim((string)($_POST['title'] ?? ''));
+    $note = trim((string)($_POST['note'] ?? ''));
+    $providerId = (int)($_POST['provider_id'] ?? 0);
+    $providerId = $providerId > 0 ? $providerId : null;
+    $file = $_FILES['document_file'] ?? null;
+
+    try {
+        if ($title === '') {
+            throw new InvalidArgumentException('Vyplňte název dokumentu.');
+        }
+        if (!is_array($file) || (int)($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            throw new InvalidArgumentException(document_upload_error_message((int)($file['error'] ?? UPLOAD_ERR_NO_FILE)));
+        }
+        $sizeBytes = (int)($file['size'] ?? 0);
+        if ($sizeBytes <= 0 || $sizeBytes > 10 * 1024 * 1024) {
+            throw new InvalidArgumentException('Soubor musí mít velikost do 10 MB.');
+        }
+
+        $originalName = trim((string)($file['name'] ?? 'dokument'));
+        $extension = text_lower((string)pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'doc', 'docx', 'txt'];
+        if (!in_array($extension, $allowedExtensions, true)) {
+            throw new InvalidArgumentException('Povolené jsou soubory PDF, obrázky, DOC/DOCX a TXT.');
+        }
+
+        $mimeType = null;
+        if (class_exists('finfo')) {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $mimeType = $finfo->file((string)$file['tmp_name']) ?: null;
+        }
+
+        $uploadDir = document_upload_root();
+        if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+            throw new RuntimeException('Úložiště dokumentů se nepodařilo připravit.');
+        }
+
+        $safeBase = preg_replace('/[^A-Za-z0-9._-]+/', '-', pathinfo($originalName, PATHINFO_FILENAME)) ?: 'dokument';
+        $safeBase = trim($safeBase, '.-') ?: 'dokument';
+        $storedName = date('Ymd-His') . '-' . bin2hex(random_bytes(8)) . '-' . substr($safeBase, 0, 80) . '.' . $extension;
+        $storagePath = 'documents/' . date('Y/m') . '/' . $storedName;
+        $targetDir = dirname(document_storage_path($storagePath));
+        if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+            throw new RuntimeException('Cílovou složku dokumentů se nepodařilo připravit.');
+        }
+        if (!move_uploaded_file((string)$file['tmp_name'], document_storage_path($storagePath))) {
+            throw new RuntimeException('Soubor se nepodařilo uložit.');
+        }
+
+        $documentId = create_child_document((int)$child['id'], (int)$user['id'], $title, $note, $providerId, $originalName, $storagePath, $mimeType, $sizeBytes);
+        audit_log('child.document_uploaded', (int)$user['id'], (int)$family['id'], 'child_document', $documentId, ['child_id' => (int)$child['id'], 'provider_id' => $providerId]);
+        flash('success', 'Dokument byl uložen.');
+    } catch (Throwable $e) {
+        flash('error', $e->getMessage());
+    }
+
+    redirect('child', ['id' => $child['id'], 'documents' => 1]);
+}
+
+function action_document_download(): void
+{
+    $user = require_login();
+    $document = child_document_for_user((int)($_GET['id'] ?? 0), (int)$user['id']);
+    if (!$document) {
+        page_not_found();
+        return;
+    }
+    $path = document_storage_path((string)$document['storage_path']);
+    if (!is_file($path)) {
+        http_response_code(404);
+        echo 'Soubor nebyl nalezen.';
+        return;
+    }
+
+    header('Content-Type: ' . (($document['mime_type'] ?? '') ?: 'application/octet-stream'));
+    header('Content-Length: ' . filesize($path));
+    header('Content-Disposition: attachment; filename="' . addcslashes((string)$document['original_filename'], "\\\"") . '"');
+    readfile($path);
+    exit;
+}
+
+function action_document_delete(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $document = child_document_for_user((int)($_POST['document_id'] ?? 0), (int)$user['id']);
+    if (!$document) {
+        flash('error', 'Dokument se nepodařilo najít.');
+        redirect('dashboard');
+    }
+    $deleted = delete_child_document((int)$document['id'], (int)$document['child_id']);
+    if ($deleted) {
+        $path = document_storage_path((string)$deleted['storage_path']);
+        if (is_file($path)) {
+            @unlink($path);
+        }
+        audit_log('child.document_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
+        flash('success', 'Dokument byl smazán.');
+    }
+    redirect('child', ['id' => (int)$document['child_id'], 'documents' => 1]);
+}
+
+function document_upload_error_message(int $error): string
+{
+    switch ($error) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'Soubor je příliš velký.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'Vyberte soubor k nahrání.';
+        default:
+            return 'Soubor se nepodařilo nahrát.';
+    }
+}
+
+function document_upload_root(): string
+{
+    return dirname(__DIR__) . '/var/uploads';
+}
+
+function document_storage_path(string $storagePath): string
+{
+    $normalized = str_replace(['\\', '..'], ['/', ''], $storagePath);
+    return document_upload_root() . '/' . ltrim($normalized, '/');
+}
+
 function symptom_detail_label(string $symptoms, ?string $severity): string
 {
     $severityLabels = [
@@ -1198,11 +1366,19 @@ function action_child_delete(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
+    require_owner($family);
     $child = require_child_access((int)($_POST['child_id'] ?? 0), (int)$user['id']);
+    $documents = child_documents((int)$child['id']);
     db()->prepare('DELETE FROM children WHERE id = ? AND family_id = ?')->execute([$child['id'], $family['id']]);
+    foreach ($documents as $document) {
+        $path = document_storage_path((string)$document['storage_path']);
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
     audit_log('child.deleted', (int)$user['id'], (int)$family['id'], 'child', (int)$child['id']);
     flash('success', 'Dítě a jeho záznamy byly smazány.');
-    redirect('children');
+    redirect('family');
 }
 
 function action_temperature_save(): void
@@ -1566,11 +1742,74 @@ function page_family(): void
     $children = children_for_user((int)$user['id']);
     $isOwner = ($family['role'] ?? '') === 'OWNER';
 
-    render_layout('Rodina', function () use ($family, $members, $pendingInvitations, $children, $isOwner) {
+    render_layout('Správa rodiny', function () use ($family, $members, $pendingInvitations, $children, $isOwner) {
         ?>
-        <div class="page-head"><h1>Rodina</h1></div>
+        <div class="page-head">
+            <div>
+                <h1>Správa rodiny</h1>
+                <p class="muted">Děti, přístupy rodičů a nastavení rodiny na jednom místě.</p>
+            </div>
+        </div>
+
         <section class="panel">
-            <h2>Název rodiny</h2>
+            <h2>Děti</h2>
+            <?php if (!$children): ?>
+                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat níže.</div>
+            <?php else: ?>
+                <div class="admin-list">
+                    <?php foreach ($children as $child): ?>
+                        <div class="admin-row">
+                            <div>
+                                <strong><?= e($child['first_name'] . ' ' . $child['last_name']) ?></strong>
+                                <small>
+                                    narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
+                                    věk <?= e(child_age_label($child['date_of_birth'])) ?>
+                                </small>
+                            </div>
+                            <div>
+                                <span class="muted">Váha</span>
+                                <strong><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></strong>
+                            </div>
+                            <div>
+                                <span class="muted">Alergie</span>
+                                <strong><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></strong>
+                            </div>
+                            <div class="actions">
+                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>">Detail</a>
+                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>">Dokumenty</a>
+                                <a class="button tiny" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
+                                <a class="button tiny" href="#family-access">Přístupy</a>
+                                <?php if ($isOwner): ?>
+                                    <form method="post" action="<?= e(url('child_delete')) ?>" data-confirm="Smazání dítěte odstraní i všechny zdravotní záznamy a dokumenty.">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                                        <button class="button tiny danger" type="submit">Smazat</button>
+                                    </form>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <?php if ($family && $isOwner): ?>
+            <section class="panel">
+                <h2>Přidat dítě</h2>
+                <form method="post" action="<?= e(url('child_create')) ?>" class="form-grid">
+                    <?= csrf_field() ?>
+                    <label>Jméno <input required name="first_name"></label>
+                    <label>Příjmení <input required name="last_name"></label>
+                    <label>Datum narození <input required type="date" name="date_of_birth" max="<?= e(date('Y-m-d')) ?>"></label>
+                    <label>Váha kg <input type="number" step="0.1" min="0" max="200" name="weight_kg" inputmode="decimal"></label>
+                    <label class="wide-field">Alergie <textarea name="allergies" rows="2" placeholder="Například penicilin, ořechy, pyl"></textarea></label>
+                    <button class="button primary" type="submit">Přidat dítě</button>
+                </form>
+            </section>
+        <?php endif; ?>
+
+        <section class="panel">
+            <h2>Nastavení rodiny</h2>
             <?php if ($family): ?>
                 <form method="post" action="<?= e(url('family_save')) ?>" class="inline-form">
                     <?= csrf_field() ?>
@@ -1647,7 +1886,7 @@ function page_family(): void
         </section>
 
         <?php if ($family && $isOwner): ?>
-            <section class="panel">
+            <section class="panel" id="family-access">
                 <h2>Přístupy k dětem</h2>
                 <?php foreach ($children as $child): ?>
                     <h3><?= e($child['first_name'] . ' ' . $child['last_name']) ?></h3>
@@ -1666,7 +1905,7 @@ function page_family(): void
                 <?php endforeach; ?>
             </section>
         <?php elseif ($family): ?>
-            <section class="panel">
+            <section class="panel" id="family-access">
                 <h2>Přístupy k dětem</h2>
                 <p class="muted">Přístupy k dětem spravuje vlastník rodiny.</p>
             </section>
@@ -1701,7 +1940,14 @@ function action_family_delete(): void
     $family = current_family((int)$user['id']);
     require_owner($family);
 
+    $documentPaths = child_document_storage_paths_for_family((int)$family['id']);
     db()->prepare('DELETE FROM families WHERE id = ? AND owner_user_id = ?')->execute([$family['id'], $user['id']]);
+    foreach ($documentPaths as $storagePath) {
+        $path = document_storage_path($storagePath);
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
     audit_log('family.deleted', (int)$user['id'], (int)$family['id'], 'family', (int)$family['id']);
     flash('success', 'Rodina byla zrušena. Uživatelské účty zůstaly zachované.');
     redirect('dashboard');

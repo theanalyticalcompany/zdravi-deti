@@ -91,7 +91,7 @@ function send_security_headers(): void
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');
-    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
 }
 
@@ -133,6 +133,17 @@ function input_datetime(?string $value = null): string
 {
     $date = $value ? new DateTimeImmutable($value) : new DateTimeImmutable();
     return $date->format('Y-m-d\TH:i');
+}
+
+function file_size_label(int $bytes): string
+{
+    if ($bytes >= 1048576) {
+        return number_format($bytes / 1048576, 1, ',', ' ') . ' MB';
+    }
+    if ($bytes >= 1024) {
+        return number_format($bytes / 1024, 0, ',', ' ') . ' kB';
+    }
+    return $bytes . ' B';
 }
 
 function db_datetime(string $localValue): string

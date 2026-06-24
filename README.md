@@ -44,9 +44,10 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 1. Nainstalujte PHP 8.1+ se zapnutým rozšířením PDO SQLite.
 2. Zkopírujte `config/config.example.php` na `config/config.php`.
 3. Pro lokální režim nastavte v `config/config.php` SQLite DSN, například `sqlite:../var/local.sqlite`.
-4. Spusťte `php tools/init_sqlite.php`.
-5. Spusťte vestavěný server: `php -S localhost:8080 -t public`.
-6. Otevřete `http://localhost:8080`.
+4. Pokud chcete mít v lokální databázi rovnou lékaře z NRPZS, uložte CSV export jako `database/seed/nrpzs_providers.csv` nebo ponechte lokální soubor `var/nrpzs/export-2026-06.csv`.
+5. Spusťte `php tools/init_sqlite.php`.
+6. Spusťte vestavěný server: `php -S localhost:8080 -t public`.
+7. Otevřete `http://localhost:8080`.
 
 Pro produkci použijte MySQL/MariaDB a importujte `database/schema.sql`.
 

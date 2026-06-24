@@ -116,13 +116,6 @@ set_child_access_users((int)$family['id'], $childId, []);
 assert_true(child_for_user($childId, $invitedUserId) === null, 'owner can revoke child access from invited user');
 set_child_access_users((int)$family['id'], $childId, [$invitedUserId]);
 assert_true(user_owned_family_count($userId) === 1, 'owner family count is detected');
-$ownerDeletionBlocked = false;
-try {
-    delete_user_account($userId);
-} catch (RuntimeException $e) {
-    $ownerDeletionBlocked = true;
-}
-assert_true($ownerDeletionBlocked, 'owner account deletion is blocked while family exists');
 
 $symptomTypeId = record_type_id((int)$family['id'], 'SYMPTOMS');
 $pdo->prepare('INSERT INTO health_records (child_id, record_type_id, event_at, created_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
@@ -160,6 +153,18 @@ assert_true($acceptedRegistered !== null, 'registered invited user can be added 
 assert_true(current_family($lateUserId) && (int)current_family($lateUserId)['id'] === (int)$family['id'], 'registered invited user becomes family member');
 assert_true(child_for_user($childId, $lateUserId) === null, 'registered invited user has no child access until owner grants it');
 
+$sideOwnerUserId = create_user('google.rodic@example.test', 'Google rodič', null, 'google-parent-side-family');
+$sideFamily = ensure_family($sideOwnerUserId, 'Google rodič');
+create_family_invitation((int)$family['id'], $userId, 'google.rodic@example.test');
+accept_pending_invitations_for_user($sideOwnerUserId, 'google.rodic@example.test');
+assert_true(user_owned_family_count($sideOwnerUserId) === 1, 'parent can have a side owned family');
+assert_true((int)current_family($sideOwnerUserId)['id'] === (int)$family['id'], 'invited parent sees the shared family as current family');
+delete_user_account($sideOwnerUserId);
+assert_true(find_user($sideOwnerUserId) === null, 'parent with side owned family can delete account');
+$sideFamilyCount = $pdo->prepare('SELECT COUNT(*) FROM families WHERE id = ?');
+$sideFamilyCount->execute([$sideFamily['id']]);
+assert_true((int)$sideFamilyCount->fetchColumn() === 0, 'side owned family is removed during account deletion');
+
 $providerRow = [
     'MistoPoskytovaniId' => 'test-provider-1',
     'NazevCely' => 'Dětská ordinace Test',
@@ -185,12 +190,18 @@ assert_true(import_nrpzs_provider_row($providerRow), 'provider row is imported')
 $fields = array_column(healthcare_provider_fields(), 'care_field');
 assert_true(in_array('Praktické lékařství pro děti a dorost', $fields, true), 'first provider specialty is indexed with uppercase initial');
 assert_true(in_array('Alergologie a klinická imunologie', $fields, true), 'second provider specialty is indexed with uppercase initial');
+assert_true(!in_array('Samostatná ordinace praktického lékaře', $fields, true), 'facility type is not indexed as a care field');
 $providers = search_healthcare_providers('Dětská', 'Alergologie a klinická imunologie', 'Praha');
 assert_true(count($providers) === 1, 'provider search finds imported provider');
 assert_true(strpos((string)$providers[0]['specialties'], 'Praktické lékařství pro děti a dorost') !== false, 'provider result includes all specialties');
 add_child_doctor($childId, (int)$providers[0]['id'], 'Pediatr');
 $doctors = child_doctors($childId);
 assert_true(count($doctors) === 1 && $doctors[0]['role_label'] === 'Pediatr', 'doctor can be assigned to child');
+$documentId = create_child_document($childId, $userId, 'Zpráva z kontroly', 'Doporučen klidový režim', (int)$providers[0]['id'], 'zprava.pdf', 'documents/test/zprava.pdf', 'application/pdf', 1234);
+$documents = child_documents($childId);
+assert_true(count($documents) === 1 && $documents[0]['title'] === 'Zpráva z kontroly', 'child document is listed');
+assert_true(child_document_for_user($documentId, $userId) !== null, 'child document can be opened by authorized parent');
+assert_true(delete_child_document($documentId, $childId) !== null, 'child document can be deleted');
 assert_true(remove_child_doctor($childId, (int)$doctors[0]['id']) !== null, 'doctor can be removed from child');
 
 $duplicateProviderA = $providerRow;

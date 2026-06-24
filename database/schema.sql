@@ -248,3 +248,22 @@ CREATE TABLE child_doctors (
     CONSTRAINT fk_child_doctors_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
     CONSTRAINT fk_child_doctors_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE child_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    child_id INT UNSIGNED NOT NULL,
+    provider_id INT UNSIGNED NULL,
+    title VARCHAR(255) NOT NULL,
+    note TEXT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    storage_path VARCHAR(500) NOT NULL,
+    mime_type VARCHAR(160) NULL,
+    size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+    uploaded_by_user_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_child_documents_child (child_id),
+    KEY idx_child_documents_provider (provider_id),
+    CONSTRAINT fk_child_documents_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    CONSTRAINT fk_child_documents_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+    CONSTRAINT fk_child_documents_user FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

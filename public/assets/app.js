@@ -7,6 +7,38 @@ document.querySelectorAll('form[data-confirm]').forEach((form) => {
     });
 });
 
+document.querySelectorAll('[data-dialog-open]').forEach((button) => {
+    button.addEventListener('click', () => {
+        const dialog = document.getElementById(button.getAttribute('data-dialog-open'));
+        if (dialog && typeof dialog.showModal === 'function') {
+            dialog.showModal();
+        }
+    });
+});
+
+document.querySelectorAll('dialog[data-open-on-load]').forEach((dialog) => {
+    if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+    }
+});
+
+document.querySelectorAll('dialog [data-dialog-close]').forEach((button) => {
+    button.addEventListener('click', () => {
+        const dialog = button.closest('dialog');
+        if (dialog) {
+            dialog.close();
+        }
+    });
+});
+
+document.querySelectorAll('dialog').forEach((dialog) => {
+    dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) {
+            dialog.close();
+        }
+    });
+});
+
 document.querySelectorAll('select[name="medication_id"]').forEach((select) => {
     const form = select.closest('form');
     const info = form ? form.querySelector('[data-medication-info]') : null;

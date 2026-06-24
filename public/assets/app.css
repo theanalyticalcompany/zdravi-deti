@@ -146,6 +146,12 @@ h3 {
     color: var(--muted);
 }
 
+.title-inline-name {
+    color: var(--text);
+    font-size: inherit;
+    font-weight: inherit;
+}
+
 .flash {
     border-radius: 8px;
     padding: .85rem 1rem;
@@ -598,6 +604,7 @@ th {
     display: flex;
     gap: .4rem;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .inline-form {
@@ -705,6 +712,70 @@ th {
     align-items: center;
 }
 
+.modal {
+    width: min(980px, calc(100vw - 2rem));
+    max-height: min(88vh, 920px);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1.1rem;
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+}
+
+.modal::backdrop {
+    background: rgba(15, 23, 42, .46);
+}
+
+.modal-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    padding-bottom: .85rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.document-section {
+    margin-top: 1rem;
+}
+
+.document-list {
+    display: grid;
+    gap: .65rem;
+}
+
+.document-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .75rem;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .8rem;
+    background: var(--surface-soft);
+}
+
+.document-row > div:first-child {
+    display: grid;
+    gap: .2rem;
+    min-width: 0;
+}
+
+.document-row strong,
+.document-row small {
+    overflow-wrap: anywhere;
+}
+
+.document-row small {
+    color: var(--muted);
+}
+
+.compact-search {
+    grid-template-columns: minmax(12rem, 1fr) minmax(8rem, .7fr) minmax(10rem, 1fr) auto;
+    margin-bottom: 0;
+}
+
 .badge {
     display: inline-flex;
     align-items: center;
@@ -808,9 +879,21 @@ th {
     .admin-row,
     .list-row,
     .provider-search,
+    .compact-search,
     .provider-card,
-    .provider-add-form {
+    .provider-add-form,
+    .document-row {
         grid-template-columns: 1fr;
+    }
+
+    .modal {
+        width: calc(100vw - 1rem);
+        max-height: calc(100vh - 1rem);
+        padding: .85rem;
+    }
+
+    .modal-head {
+        flex-direction: column;
     }
 }
 

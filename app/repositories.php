@@ -153,6 +153,26 @@ function ensure_runtime_schema(): void
         );
         db()->exec('CREATE INDEX IF NOT EXISTS idx_child_doctors_child ON child_doctors(child_id)');
         db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                child_id INTEGER NOT NULL,
+                provider_id INTEGER NULL,
+                title TEXT NOT NULL,
+                note TEXT NULL,
+                original_filename TEXT NOT NULL,
+                storage_path TEXT NOT NULL,
+                mime_type TEXT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                uploaded_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+                FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_child ON child_documents(child_id)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_provider ON child_documents(provider_id)');
+        db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INTEGER PRIMARY KEY,
                 symptoms TEXT NOT NULL,
@@ -313,6 +333,26 @@ function ensure_runtime_schema(): void
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_documents (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                child_id INT UNSIGNED NOT NULL,
+                provider_id INT UNSIGNED NULL,
+                title VARCHAR(255) NOT NULL,
+                note TEXT NULL,
+                original_filename VARCHAR(255) NOT NULL,
+                storage_path VARCHAR(500) NOT NULL,
+                mime_type VARCHAR(160) NULL,
+                size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+                uploaded_by_user_id INT UNSIGNED NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_child_documents_child (child_id),
+                KEY idx_child_documents_provider (provider_id),
+                CONSTRAINT fk_child_documents_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                CONSTRAINT fk_child_documents_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+                CONSTRAINT fk_child_documents_user FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INT UNSIGNED PRIMARY KEY,
                 symptoms TEXT NOT NULL,
@@ -453,16 +493,14 @@ function delete_user_account(int $userId): void
     if (!$user) {
         return;
     }
-    if (user_owned_family_count($userId) > 0) {
-        throw new RuntimeException('Vlastník rodiny musí nejdříve zrušit rodinu.');
-    }
-
     $now = now_sql();
     $oldEmail = (string)$user['email'];
     $deletedEmail = 'deleted-user-' . $userId . '-' . bin2hex(random_bytes(6)) . '@deleted.local';
 
     db()->beginTransaction();
     try {
+        // Remove side families owned by this user. Families where the user is only a parent remain intact.
+        db()->prepare('DELETE FROM families WHERE owner_user_id = ?')->execute([$userId]);
         db()->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$userId]);
         db()->prepare('DELETE FROM user_sessions WHERE user_id = ?')->execute([$userId]);
         db()->prepare('DELETE FROM child_access WHERE user_id = ?')->execute([$userId]);
@@ -632,7 +670,7 @@ function current_family(int $userId): ?array
          FROM families f
          JOIN family_members fm ON fm.family_id = f.id
          WHERE fm.user_id = ?
-         ORDER BY fm.created_at DESC, f.id DESC
+         ORDER BY fm.created_at DESC, fm.id DESC
          LIMIT 1'
     );
     $stmt->execute([$userId]);
@@ -1212,7 +1250,7 @@ function healthcare_provider_fields(): array
         'SELECT specialty AS care_field, COUNT(*) AS count_items
          FROM healthcare_provider_specialties
          WHERE specialty IS NOT NULL AND specialty <> ""
-         GROUP BY specialty
+         GROUP BY care_field
          LIMIT 400'
     );
     $items = $stmt->fetchAll();
@@ -1258,9 +1296,13 @@ function search_healthcare_providers(string $query, string $careField = '', stri
     $city = trim($city);
 
     if ($query !== '') {
-        $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ? OR EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_q WHERE hps_q.provider_id = healthcare_providers.id AND hps_q.specialty LIKE ?))';
-        $like = '%' . $query . '%';
-        array_push($params, $like, $like, $like, $like, $like, $like);
+        $tokens = preg_split('/\s+/u', $query) ?: [];
+        $tokens = array_values(array_filter($tokens, fn($token) => $token !== ''));
+        foreach (array_slice($tokens, 0, 5) as $token) {
+            $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ? OR EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_q WHERE hps_q.provider_id = healthcare_providers.id AND hps_q.specialty LIKE ?))';
+            $like = '%' . $token . '%';
+            array_push($params, $like, $like, $like, $like, $like, $like);
+        }
     }
     if ($careField !== '') {
         $where[] = 'EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_f WHERE hps_f.provider_id = healthcare_providers.id AND hps_f.specialty = ?)';
@@ -1325,6 +1367,74 @@ function remove_child_doctor(int $childId, int $childDoctorId): ?array
     }
     db()->prepare('DELETE FROM child_doctors WHERE id = ? AND child_id = ?')->execute([$childDoctorId, $childId]);
     return $doctor;
+}
+
+function child_documents(int $childId): array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT cd.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_documents cd
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE cd.child_id = ?
+         ORDER BY cd.created_at DESC, cd.id DESC'
+    );
+    $stmt->execute([$childId]);
+    return $stmt->fetchAll();
+}
+
+function create_child_document(int $childId, int $userId, string $title, string $note, ?int $providerId, string $originalFilename, string $storagePath, ?string $mimeType, int $sizeBytes): int
+{
+    if ($providerId !== null && !healthcare_provider_by_id($providerId)) {
+        throw new InvalidArgumentException('Vybraný lékař nebyl nalezen.');
+    }
+    db()->prepare(
+        'INSERT INTO child_documents (child_id, provider_id, title, note, original_filename, storage_path, mime_type, size_bytes, uploaded_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([$childId, $providerId, $title, $note !== '' ? $note : null, $originalFilename, $storagePath, $mimeType, $sizeBytes, $userId]);
+    return (int)db()->lastInsertId();
+}
+
+function child_document_for_user(int $documentId, int $userId): ?array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT cd.*, c.family_id, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_documents cd
+         JOIN children c ON c.id = cd.child_id
+         JOIN child_access ca ON ca.child_id = c.id AND ca.user_id = ? AND ca.can_view = 1
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE cd.id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$userId, $documentId]);
+    return $stmt->fetch() ?: null;
+}
+
+function delete_child_document(int $documentId, int $childId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM child_documents WHERE id = ? AND child_id = ? LIMIT 1');
+    $stmt->execute([$documentId, $childId]);
+    $document = $stmt->fetch() ?: null;
+    if (!$document) {
+        return null;
+    }
+    db()->prepare('DELETE FROM child_documents WHERE id = ? AND child_id = ?')->execute([$documentId, $childId]);
+    return $document;
+}
+
+function child_document_storage_paths_for_family(int $familyId): array
+{
+    $stmt = db()->prepare(
+        'SELECT cd.storage_path
+         FROM child_documents cd
+         JOIN children c ON c.id = cd.child_id
+         WHERE c.family_id = ?'
+    );
+    $stmt->execute([$familyId]);
+    return array_map(fn($row) => (string)$row['storage_path'], $stmt->fetchAll());
 }
 
 function child_access_rows(int $childId): array
