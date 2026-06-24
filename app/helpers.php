@@ -146,6 +146,38 @@ function file_size_label(int $bytes): string
     return $bytes . ' B';
 }
 
+function document_type_options(): array
+{
+    return [
+        'general' => 'Obecný dokument',
+        'medical_report' => 'Lékařská zpráva',
+        'lab_result' => 'Laboratorní výsledek',
+        'ehic' => 'EHIC',
+        'vaccination' => 'Očkování',
+        'other' => 'Jiné',
+    ];
+}
+
+function document_type_label(?string $type): string
+{
+    $options = document_type_options();
+    return $options[$type ?: 'general'] ?? $options['general'];
+}
+
+function appointment_status_label(?string $status): string
+{
+    return [
+        'planned' => 'Plánovaná',
+        'completed' => 'Proběhlá',
+        'cancelled' => 'Zrušená',
+    ][$status ?: 'planned'] ?? 'Plánovaná';
+}
+
+function export_detail_level_label(string $level): string
+{
+    return $level === 'brief' ? 'Stručně' : 'Podrobně';
+}
+
 function db_datetime(string $localValue): string
 {
     $date = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $localValue);
@@ -154,6 +186,15 @@ function db_datetime(string $localValue): string
     }
     if ($date > new DateTimeImmutable('+1 minute')) {
         throw new InvalidArgumentException('Datum a čas nesmí být v budoucnosti.');
+    }
+    return $date->format('Y-m-d H:i:s');
+}
+
+function db_datetime_any(string $localValue): string
+{
+    $date = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $localValue);
+    if (!$date) {
+        throw new InvalidArgumentException('Neplatný datum a čas.');
     }
     return $date->format('Y-m-d H:i:s');
 }

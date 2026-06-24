@@ -172,6 +172,57 @@ function ensure_runtime_schema(): void
         );
         db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_child ON child_documents(child_id)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_provider ON child_documents(provider_id)');
+        $documentColumns = array_column(db()->query('PRAGMA table_info(child_documents)')->fetchAll(), 'name');
+        foreach ([
+            'document_type' => "TEXT NOT NULL DEFAULT 'general'",
+            'is_sensitive' => 'INTEGER NOT NULL DEFAULT 0',
+        ] as $column => $definition) {
+            if (!in_array($column, $documentColumns, true)) {
+                db()->exec("ALTER TABLE child_documents ADD COLUMN {$column} {$definition}");
+            }
+        }
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_appointments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                child_id INTEGER NOT NULL,
+                provider_id INTEGER NULL,
+                title TEXT NOT NULL,
+                appointment_type TEXT NOT NULL DEFAULT \'Kontrola\',
+                scheduled_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT \'planned\',
+                pre_note TEXT NULL,
+                result_note TEXT NULL,
+                recommendation TEXT NULL,
+                created_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_appointments_child ON child_appointments(child_id)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_appointments_scheduled ON child_appointments(scheduled_at)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_child_appointments_provider ON child_appointments(provider_id)');
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS appointment_documents (
+                appointment_id INTEGER NOT NULL,
+                document_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (appointment_id, document_id),
+                FOREIGN KEY (appointment_id) REFERENCES child_appointments(id) ON DELETE CASCADE,
+                FOREIGN KEY (document_id) REFERENCES child_documents(id) ON DELETE CASCADE
+            )'
+        );
+        $recordColumns = array_column(db()->query('PRAGMA table_info(record_types)')->fetchAll(), 'name');
+        foreach ([
+            'is_quick' => 'INTEGER NOT NULL DEFAULT 1',
+            'sort_order' => 'INTEGER NOT NULL DEFAULT 100',
+        ] as $column => $definition) {
+            if (!in_array($column, $recordColumns, true)) {
+                db()->exec("ALTER TABLE record_types ADD COLUMN {$column} {$definition}");
+            }
+        }
         db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INTEGER PRIMARY KEY,
@@ -339,6 +390,8 @@ function ensure_runtime_schema(): void
                 provider_id INT UNSIGNED NULL,
                 title VARCHAR(255) NOT NULL,
                 note TEXT NULL,
+                document_type VARCHAR(40) NOT NULL DEFAULT \'general\',
+                is_sensitive TINYINT(1) NOT NULL DEFAULT 0,
                 original_filename VARCHAR(255) NOT NULL,
                 storage_path VARCHAR(500) NOT NULL,
                 mime_type VARCHAR(160) NULL,
@@ -352,6 +405,57 @@ function ensure_runtime_schema(): void
                 CONSTRAINT fk_child_documents_user FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+        foreach ([
+            'document_type' => "VARCHAR(40) NOT NULL DEFAULT 'general' AFTER note",
+            'is_sensitive' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER document_type',
+        ] as $column => $definition) {
+            $stmt = db()->query("SHOW COLUMNS FROM child_documents LIKE '{$column}'");
+            if (!$stmt->fetch()) {
+                db()->exec("ALTER TABLE child_documents ADD COLUMN {$column} {$definition}");
+            }
+        }
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS child_appointments (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                child_id INT UNSIGNED NOT NULL,
+                provider_id INT UNSIGNED NULL,
+                title VARCHAR(255) NOT NULL,
+                appointment_type VARCHAR(120) NOT NULL DEFAULT \'Kontrola\',
+                scheduled_at DATETIME NOT NULL,
+                status VARCHAR(40) NOT NULL DEFAULT \'planned\',
+                pre_note TEXT NULL,
+                result_note TEXT NULL,
+                recommendation TEXT NULL,
+                created_by_user_id INT UNSIGNED NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_child_appointments_child (child_id),
+                KEY idx_child_appointments_scheduled (scheduled_at),
+                KEY idx_child_appointments_provider (provider_id),
+                CONSTRAINT fk_child_appointments_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+                CONSTRAINT fk_child_appointments_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+                CONSTRAINT fk_child_appointments_user FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS appointment_documents (
+                appointment_id INT UNSIGNED NOT NULL,
+                document_id INT UNSIGNED NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (appointment_id, document_id),
+                CONSTRAINT fk_appointment_documents_appointment FOREIGN KEY (appointment_id) REFERENCES child_appointments(id) ON DELETE CASCADE,
+                CONSTRAINT fk_appointment_documents_document FOREIGN KEY (document_id) REFERENCES child_documents(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        foreach ([
+            'is_quick' => 'TINYINT(1) NOT NULL DEFAULT 1 AFTER is_system',
+            'sort_order' => 'INT NOT NULL DEFAULT 100 AFTER is_quick',
+        ] as $column => $definition) {
+            $stmt = db()->query("SHOW COLUMNS FROM record_types LIKE '{$column}'");
+            if (!$stmt->fetch()) {
+                db()->exec("ALTER TABLE record_types ADD COLUMN {$column} {$definition}");
+            }
+        }
         db()->exec(
             'CREATE TABLE IF NOT EXISTS symptom_records (
                 health_record_id INT UNSIGNED PRIMARY KEY,
@@ -936,14 +1040,14 @@ function ensure_default_medications(int $familyId): void
 
 function update_system_record_type_names(int $familyId): void
 {
-    $stmt = db()->prepare('UPDATE record_types SET name = ? WHERE family_id = ? AND code = ? AND is_system = 1');
+    $stmt = db()->prepare('UPDATE record_types SET name = ?, is_quick = 1, sort_order = ? WHERE family_id = ? AND code = ? AND is_system = 1');
     foreach ([
-        'TEMPERATURE' => 'Teplota',
-        'MEDICATION' => 'Podání léku',
-        'CARE' => 'Péče',
-        'SYMPTOMS' => 'Příznaky',
-    ] as $code => $name) {
-        $stmt->execute([$name, $familyId, $code]);
+        'TEMPERATURE' => ['Teplota', 10],
+        'MEDICATION' => ['Podání léku', 20],
+        'SYMPTOMS' => ['Příznaky', 30],
+        'CARE' => ['Péče', 40],
+    ] as $code => $row) {
+        $stmt->execute([$row[0], $row[1], $familyId, $code]);
     }
 }
 
@@ -958,8 +1062,10 @@ function ensure_special_record_types(?int $familyId = null): void
 
     $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
     $stmt = db()->prepare($insertIgnore . ' INTO record_types (family_id, code, name, kind, is_system) VALUES (?, ?, ?, ?, 1)');
+    $update = db()->prepare('UPDATE record_types SET is_quick = 1, sort_order = 30 WHERE family_id = ? AND code = ? AND is_system = 1');
     foreach ($families as $family) {
         $stmt->execute([(int)$family['id'], 'SYMPTOMS', 'Příznaky', 'CARE']);
+        $update->execute([(int)$family['id'], 'SYMPTOMS']);
     }
 }
 
@@ -1384,15 +1490,36 @@ function child_documents(int $childId): array
     return $stmt->fetchAll();
 }
 
-function create_child_document(int $childId, int $userId, string $title, string $note, ?int $providerId, string $originalFilename, string $storagePath, ?string $mimeType, int $sizeBytes): int
+function child_documents_between(int $childId, string $from, string $to, bool $includeSensitive = false): array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $where = 'cd.child_id = ? AND cd.created_at BETWEEN ? AND ?';
+    $params = [$childId, $from, $to];
+    if (!$includeSensitive) {
+        $where .= ' AND cd.is_sensitive = 0 AND cd.document_type <> ?';
+        $params[] = 'ehic';
+    }
+    $stmt = db()->prepare(
+        'SELECT cd.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_documents cd
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE ' . $where . '
+         ORDER BY cd.created_at DESC, cd.id DESC'
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function create_child_document(int $childId, int $userId, string $title, string $note, ?int $providerId, string $originalFilename, string $storagePath, ?string $mimeType, int $sizeBytes, string $documentType = 'general', bool $isSensitive = false): int
 {
     if ($providerId !== null && !healthcare_provider_by_id($providerId)) {
         throw new InvalidArgumentException('Vybraný lékař nebyl nalezen.');
     }
     db()->prepare(
-        'INSERT INTO child_documents (child_id, provider_id, title, note, original_filename, storage_path, mime_type, size_bytes, uploaded_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute([$childId, $providerId, $title, $note !== '' ? $note : null, $originalFilename, $storagePath, $mimeType, $sizeBytes, $userId]);
+        'INSERT INTO child_documents (child_id, provider_id, title, note, document_type, is_sensitive, original_filename, storage_path, mime_type, size_bytes, uploaded_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([$childId, $providerId, $title, $note !== '' ? $note : null, $documentType, $isSensitive ? 1 : 0, $originalFilename, $storagePath, $mimeType, $sizeBytes, $userId]);
     return (int)db()->lastInsertId();
 }
 
@@ -1435,6 +1562,149 @@ function child_document_storage_paths_for_family(int $familyId): array
     );
     $stmt->execute([$familyId]);
     return array_map(fn($row) => (string)$row['storage_path'], $stmt->fetchAll());
+}
+
+function child_appointments(int $childId): array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT ca.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_appointments ca
+         LEFT JOIN healthcare_providers hp ON hp.id = ca.provider_id
+         WHERE ca.child_id = ?
+         ORDER BY ca.scheduled_at DESC, ca.id DESC'
+    );
+    $stmt->execute([$childId]);
+    return $stmt->fetchAll();
+}
+
+function child_appointments_between(int $childId, string $from, string $to, bool $includeCancelled = false): array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $where = 'ca.child_id = ? AND ca.scheduled_at BETWEEN ? AND ?';
+    $params = [$childId, $from, $to];
+    if (!$includeCancelled) {
+        $where .= ' AND ca.status <> ?';
+        $params[] = 'cancelled';
+    }
+    $stmt = db()->prepare(
+        'SELECT ca.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_appointments ca
+         LEFT JOIN healthcare_providers hp ON hp.id = ca.provider_id
+         WHERE ' . $where . '
+         ORDER BY ca.scheduled_at DESC, ca.id DESC'
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function appointment_document_ids(int $appointmentId): array
+{
+    $stmt = db()->prepare('SELECT document_id FROM appointment_documents WHERE appointment_id = ?');
+    $stmt->execute([$appointmentId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+function appointment_documents(int $appointmentId): array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT cd.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM appointment_documents ad
+         JOIN child_documents cd ON cd.id = ad.document_id
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE ad.appointment_id = ?
+         ORDER BY cd.created_at DESC, cd.id DESC'
+    );
+    $stmt->execute([$appointmentId]);
+    return $stmt->fetchAll();
+}
+
+function save_child_appointment(int $childId, int $userId, ?int $appointmentId, array $data, array $documentIds): int
+{
+    $providerId = (int)($data['provider_id'] ?? 0);
+    $providerId = $providerId > 0 ? $providerId : null;
+    if ($providerId !== null && !healthcare_provider_by_id($providerId)) {
+        throw new InvalidArgumentException('Vybraný lékař nebyl nalezen.');
+    }
+
+    $title = trim((string)($data['title'] ?? ''));
+    $appointmentType = trim((string)($data['appointment_type'] ?? 'Kontrola')) ?: 'Kontrola';
+    $scheduledAt = (string)($data['scheduled_at'] ?? '');
+    $status = normalize_appointment_status((string)($data['status'] ?? 'planned'));
+    if ($title === '') {
+        throw new InvalidArgumentException('Vyplňte název kontroly.');
+    }
+    $scheduledAtDb = db_datetime_any($scheduledAt);
+    $preNote = trim((string)($data['pre_note'] ?? ''));
+    $resultNote = trim((string)($data['result_note'] ?? ''));
+    $recommendation = trim((string)($data['recommendation'] ?? ''));
+    $now = now_sql();
+
+    db()->beginTransaction();
+    try {
+        if ($appointmentId !== null && $appointmentId > 0) {
+            $stmt = db()->prepare(
+                'UPDATE child_appointments
+                 SET provider_id = ?, title = ?, appointment_type = ?, scheduled_at = ?, status = ?, pre_note = ?, result_note = ?, recommendation = ?, updated_at = ?
+                 WHERE id = ? AND child_id = ?'
+            );
+            $stmt->execute([$providerId, $title, $appointmentType, $scheduledAtDb, $status, $preNote ?: null, $resultNote ?: null, $recommendation ?: null, $now, $appointmentId, $childId]);
+            if ($stmt->rowCount() === 0) {
+                throw new InvalidArgumentException('Kontrola nebyla nalezena.');
+            }
+        } else {
+            db()->prepare(
+                'INSERT INTO child_appointments (child_id, provider_id, title, appointment_type, scheduled_at, status, pre_note, result_note, recommendation, created_by_user_id, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([$childId, $providerId, $title, $appointmentType, $scheduledAtDb, $status, $preNote ?: null, $resultNote ?: null, $recommendation ?: null, $userId, $now]);
+            $appointmentId = (int)db()->lastInsertId();
+        }
+        sync_appointment_documents((int)$appointmentId, $childId, $documentIds);
+        db()->commit();
+        return (int)$appointmentId;
+    } catch (Throwable $e) {
+        db()->rollBack();
+        throw $e;
+    }
+}
+
+function normalize_appointment_status(string $status): string
+{
+    return in_array($status, ['planned', 'completed', 'cancelled'], true) ? $status : 'planned';
+}
+
+function sync_appointment_documents(int $appointmentId, int $childId, array $documentIds): void
+{
+    $documentIds = array_values(array_unique(array_filter(array_map('intval', $documentIds), fn($id) => $id > 0)));
+    db()->prepare('DELETE FROM appointment_documents WHERE appointment_id = ?')->execute([$appointmentId]);
+    if (!$documentIds) {
+        return;
+    }
+    $validStmt = db()->prepare('SELECT id FROM child_documents WHERE child_id = ? AND id = ?');
+    $insertIgnore = db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+    $insert = db()->prepare($insertIgnore . ' INTO appointment_documents (appointment_id, document_id) VALUES (?, ?)');
+    foreach ($documentIds as $documentId) {
+        $validStmt->execute([$childId, $documentId]);
+        if ($validStmt->fetchColumn()) {
+            $insert->execute([$appointmentId, $documentId]);
+        }
+    }
+}
+
+function delete_child_appointment(int $appointmentId, int $childId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM child_appointments WHERE id = ? AND child_id = ? LIMIT 1');
+    $stmt->execute([$appointmentId, $childId]);
+    $appointment = $stmt->fetch() ?: null;
+    if (!$appointment) {
+        return null;
+    }
+    db()->prepare('DELETE FROM child_appointments WHERE id = ? AND child_id = ?')->execute([$appointmentId, $childId]);
+    return $appointment;
 }
 
 function child_access_rows(int $childId): array
@@ -1501,15 +1771,18 @@ function medications(int $familyId, bool $activeOnly = false): array
     return $stmt->fetchAll();
 }
 
-function record_types(int $familyId, ?string $kind = null): array
+function record_types(int $familyId, ?string $kind = null, bool $activeOnly = true): array
 {
-    $sql = 'SELECT * FROM record_types WHERE family_id = ? AND is_active = 1';
+    $sql = 'SELECT * FROM record_types WHERE family_id = ?';
     $params = [$familyId];
     if ($kind) {
         $sql .= ' AND kind = ?';
         $params[] = $kind;
     }
-    $sql .= ' ORDER BY is_system DESC, name';
+    if ($activeOnly) {
+        $sql .= ' AND is_active = 1';
+    }
+    $sql .= ' ORDER BY is_quick DESC, sort_order, is_system DESC, name';
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();

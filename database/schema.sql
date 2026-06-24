@@ -68,6 +68,8 @@ CREATE TABLE record_types (
     name VARCHAR(160) NOT NULL,
     kind ENUM('TEMPERATURE', 'MEDICATION', 'CARE') NOT NULL,
     is_system TINYINT(1) NOT NULL DEFAULT 0,
+    is_quick TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 100,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -255,6 +257,8 @@ CREATE TABLE child_documents (
     provider_id INT UNSIGNED NULL,
     title VARCHAR(255) NOT NULL,
     note TEXT NULL,
+    document_type VARCHAR(40) NOT NULL DEFAULT 'general',
+    is_sensitive TINYINT(1) NOT NULL DEFAULT 0,
     original_filename VARCHAR(255) NOT NULL,
     storage_path VARCHAR(500) NOT NULL,
     mime_type VARCHAR(160) NULL,
@@ -266,4 +270,35 @@ CREATE TABLE child_documents (
     CONSTRAINT fk_child_documents_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
     CONSTRAINT fk_child_documents_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
     CONSTRAINT fk_child_documents_user FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE child_appointments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    child_id INT UNSIGNED NOT NULL,
+    provider_id INT UNSIGNED NULL,
+    title VARCHAR(255) NOT NULL,
+    appointment_type VARCHAR(120) NOT NULL DEFAULT 'Kontrola',
+    scheduled_at DATETIME NOT NULL,
+    status VARCHAR(40) NOT NULL DEFAULT 'planned',
+    pre_note TEXT NULL,
+    result_note TEXT NULL,
+    recommendation TEXT NULL,
+    created_by_user_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_child_appointments_child (child_id),
+    KEY idx_child_appointments_scheduled (scheduled_at),
+    KEY idx_child_appointments_provider (provider_id),
+    CONSTRAINT fk_child_appointments_child FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    CONSTRAINT fk_child_appointments_provider FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+    CONSTRAINT fk_child_appointments_user FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE appointment_documents (
+    appointment_id INT UNSIGNED NOT NULL,
+    document_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (appointment_id, document_id),
+    CONSTRAINT fk_appointment_documents_appointment FOREIGN KEY (appointment_id) REFERENCES child_appointments(id) ON DELETE CASCADE,
+    CONSTRAINT fk_appointment_documents_document FOREIGN KEY (document_id) REFERENCES child_documents(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

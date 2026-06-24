@@ -198,10 +198,27 @@ add_child_doctor($childId, (int)$providers[0]['id'], 'Pediatr');
 $doctors = child_doctors($childId);
 assert_true(count($doctors) === 1 && $doctors[0]['role_label'] === 'Pediatr', 'doctor can be assigned to child');
 $documentId = create_child_document($childId, $userId, 'Zpráva z kontroly', 'Doporučen klidový režim', (int)$providers[0]['id'], 'zprava.pdf', 'documents/test/zprava.pdf', 'application/pdf', 1234);
+$ehicId = create_child_document($childId, $userId, 'EHIC', 'Evropský průkaz pojištěnce', null, 'ehic.jpg', 'documents/test/ehic.jpg', 'image/jpeg', 4321, 'ehic', true);
 $documents = child_documents($childId);
-assert_true(count($documents) === 1 && $documents[0]['title'] === 'Zpráva z kontroly', 'child document is listed');
+assert_true(count($documents) === 2 && $documents[1]['title'] === 'Zpráva z kontroly', 'child document is listed');
 assert_true(child_document_for_user($documentId, $userId) !== null, 'child document can be opened by authorized parent');
+$appointmentId = save_child_appointment($childId, $userId, null, [
+    'provider_id' => (string)$providers[0]['id'],
+    'title' => 'Kontrola po nemoci',
+    'appointment_type' => 'Pediatr',
+    'scheduled_at' => (new DateTimeImmutable('+2 days'))->format('Y-m-d\TH:i'),
+    'status' => 'planned',
+    'pre_note' => 'Doléčení',
+    'result_note' => '',
+    'recommendation' => '',
+], [$documentId]);
+$appointments = child_appointments($childId);
+assert_true(count($appointments) === 1 && $appointments[0]['title'] === 'Kontrola po nemoci', 'appointment can be saved');
+assert_true(appointment_document_ids($appointmentId) === [$documentId], 'appointment can link a document');
+assert_true(count(child_appointments_between($childId, date('Y-m-d 00:00:00'), (new DateTimeImmutable('+3 days'))->format('Y-m-d 23:59:59'))) === 1, 'appointment export range finds planned appointment');
+assert_true(delete_child_appointment($appointmentId, $childId) !== null, 'appointment can be deleted');
 assert_true(delete_child_document($documentId, $childId) !== null, 'child document can be deleted');
+assert_true(delete_child_document($ehicId, $childId) !== null, 'EHIC document can be deleted');
 assert_true(remove_child_doctor($childId, (int)$doctors[0]['id']) !== null, 'doctor can be removed from child');
 
 $duplicateProviderA = $providerRow;

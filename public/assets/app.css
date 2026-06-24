@@ -506,7 +506,7 @@ textarea {
 
 .quick-entry {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 1rem;
     margin-bottom: 1.2rem;
 }
@@ -803,6 +803,77 @@ th {
     font-size: .82rem;
 }
 
+.badge.warning {
+    border-color: rgba(180, 96, 26, .34);
+    background: rgba(180, 96, 26, .11);
+    color: var(--warning);
+    margin-left: .35rem;
+}
+
+.appointment-list {
+    display: grid;
+    gap: .8rem;
+    margin-top: .9rem;
+}
+
+.appointment-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    padding: .8rem;
+}
+
+.appointment-summary {
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: .7rem;
+    align-items: center;
+}
+
+.appointment-form {
+    margin-top: .9rem;
+}
+
+.summary-list.compact {
+    margin-top: .85rem;
+}
+
+.checkbox-panel {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .75rem;
+    display: grid;
+    gap: .45rem;
+}
+
+.checkbox-panel legend {
+    padding: 0 .35rem;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.mini-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin: .8rem 0;
+}
+
+.mini-list a {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .3rem .5rem;
+    background: var(--surface);
+    text-decoration: none;
+    font-size: .9rem;
+}
+
+.export-options .check {
+    align-self: end;
+    min-height: 44px;
+}
+
 .access-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto;
@@ -896,6 +967,10 @@ th {
     .provider-card,
     .provider-add-form,
     .document-row {
+        grid-template-columns: 1fr;
+    }
+
+    .appointment-summary {
         grid-template-columns: 1fr;
     }
 

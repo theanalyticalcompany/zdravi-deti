@@ -72,6 +72,8 @@ CREATE TABLE record_types (
     name TEXT NOT NULL,
     kind TEXT NOT NULL,
     is_system INTEGER NOT NULL DEFAULT 0,
+    is_quick INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 100,
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -267,6 +269,8 @@ CREATE TABLE child_documents (
     provider_id INTEGER NULL,
     title TEXT NOT NULL,
     note TEXT NULL,
+    document_type TEXT NOT NULL DEFAULT 'general',
+    is_sensitive INTEGER NOT NULL DEFAULT 0,
     original_filename TEXT NOT NULL,
     storage_path TEXT NOT NULL,
     mime_type TEXT NULL,
@@ -280,3 +284,35 @@ CREATE TABLE child_documents (
 
 CREATE INDEX idx_child_documents_child ON child_documents(child_id);
 CREATE INDEX idx_child_documents_provider ON child_documents(provider_id);
+
+CREATE TABLE child_appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    child_id INTEGER NOT NULL,
+    provider_id INTEGER NULL,
+    title TEXT NOT NULL,
+    appointment_type TEXT NOT NULL DEFAULT 'Kontrola',
+    scheduled_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planned',
+    pre_note TEXT NULL,
+    result_note TEXT NULL,
+    recommendation TEXT NULL,
+    created_by_user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (child_id) REFERENCES children(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES healthcare_providers(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_child_appointments_child ON child_appointments(child_id);
+CREATE INDEX idx_child_appointments_scheduled ON child_appointments(scheduled_at);
+CREATE INDEX idx_child_appointments_provider ON child_appointments(provider_id);
+
+CREATE TABLE appointment_documents (
+    appointment_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (appointment_id, document_id),
+    FOREIGN KEY (appointment_id) REFERENCES child_appointments(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES child_documents(id) ON DELETE CASCADE
+);
