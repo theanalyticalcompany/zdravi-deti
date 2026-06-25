@@ -1011,6 +1011,20 @@ function page_child(): void
             </section>
 
             <section class="subsection document-section">
+                <h3>Nahrát EHIC</h3>
+                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                    <input type="hidden" name="title" value="EHIC">
+                    <input type="hidden" name="document_type" value="ehic">
+                    <input type="hidden" name="is_sensitive" value="1">
+                    <label>Poznámka <textarea name="note" rows="2" placeholder="Volitelné, např. platnost nebo pojišťovna"></textarea></label>
+                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.pdf"></label>
+                    <button class="button primary" type="submit">Uložit EHIC</button>
+                </form>
+            </section>
+
+            <section class="subsection document-section">
                 <h3>Nahrát nový dokument</h3>
                 <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
                     <?= csrf_field() ?>

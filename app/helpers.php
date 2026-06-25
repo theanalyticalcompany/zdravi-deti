@@ -152,7 +152,7 @@ function document_type_options(): array
         'general' => 'Obecný dokument',
         'medical_report' => 'Lékařská zpráva',
         'lab_result' => 'Laboratorní výsledek',
-        'ehic' => 'EHIC',
+        'ehic' => 'EHIC / evropský průkaz zdravotního pojištění',
         'vaccination' => 'Očkování',
         'other' => 'Jiné',
     ];
