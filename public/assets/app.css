@@ -409,6 +409,23 @@ textarea {
     min-width: 9.5rem;
 }
 
+.ehic-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.ehic-panel h2 {
+    margin-bottom: .25rem;
+}
+
+.ehic-panel .actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .overview-list {
     display: grid;
     gap: 1rem;
@@ -749,6 +766,10 @@ th {
     border-bottom: 1px solid var(--line);
 }
 
+.modal-flash {
+    margin-top: 1rem;
+}
+
 .document-section {
     margin-top: 1rem;
 }
@@ -926,7 +947,8 @@ th {
     .topbar,
     .page-head,
     .section-head,
-    .export-head {
+    .export-head,
+    .ehic-panel {
         align-items: flex-start;
         flex-direction: column;
     }

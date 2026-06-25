@@ -28,6 +28,7 @@ function dispatch(): void
         case 'children': page_children(); break;
         case 'child': page_child(); break;
         case 'document_upload': action_document_upload(); break;
+        case 'document_view': action_document_view(); break;
         case 'document_download': action_document_download(); break;
         case 'document_delete': action_document_delete(); break;
         case 'appointment_save': action_appointment_save(); break;
@@ -911,9 +912,12 @@ function page_child(): void
     $documentProviderResults = search_healthcare_providers($documentProviderQuery, $documentProviderCareField, $documentProviderCity, 50);
     $openDocuments = ($_GET['documents'] ?? '') === '1';
     $openAppointments = ($_GET['appointments'] ?? '') === '1';
+    $documentUploaded = in_array($_GET['document_uploaded'] ?? '', ['ehic', 'document'], true) ? (string)$_GET['document_uploaded'] : '';
 
-    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments) {
+    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments, $documentUploaded) {
         $last = $summary['last_temperature'];
+        $ehicDocuments = array_values(array_filter($documents, fn($document) => ($document['document_type'] ?? '') === 'ehic'));
+        $latestEhic = $ehicDocuments[0] ?? null;
         ?>
         <div class="page-head">
             <div>
@@ -952,6 +956,10 @@ function page_child(): void
                 <button class="button subtle" type="button" data-dialog-close>Zavřít</button>
             </div>
 
+            <?php if ($documentUploaded): ?>
+                <div class="flash success modal-flash"><?= $documentUploaded === 'ehic' ? 'EHIC byl uložen a je dostupný v detailu dítěte.' : 'Dokument byl uložen.' ?></div>
+            <?php endif; ?>
+
             <section class="subsection document-section">
                 <h3>Uložené dokumenty</h3>
                 <?php if (!$documents): ?>
@@ -975,6 +983,7 @@ function page_child(): void
                                     <?php endif; ?>
                                 </div>
                                 <div class="actions">
+                                    <a class="button tiny" href="<?= e(url('document_view', ['id' => $document['id']])) ?>" target="_blank" rel="noopener">Zobrazit</a>
                                     <a class="button tiny" href="<?= e(url('document_download', ['id' => $document['id']])) ?>">Stáhnout</a>
                                     <form method="post" action="<?= e(url('document_delete')) ?>" data-confirm="Smazat dokument?">
                                         <?= csrf_field() ?>
@@ -1054,6 +1063,28 @@ function page_child(): void
                 </form>
             </section>
         </dialog>
+
+        <section class="panel ehic-panel">
+            <div>
+                <h2>EHIC</h2>
+                <?php if ($latestEhic): ?>
+                    <p class="muted">
+                        <?= e(document_type_label($latestEhic['document_type'] ?? 'ehic')) ?> ·
+                        <?= e(display_datetime($latestEhic['created_at'])) ?> ·
+                        <?= e(file_size_label((int)$latestEhic['size_bytes'])) ?>
+                    </p>
+                <?php else: ?>
+                    <p class="muted">Evropský průkaz zdravotního pojištění zatím není uložený.</p>
+                <?php endif; ?>
+            </div>
+            <div class="actions">
+                <?php if ($latestEhic): ?>
+                    <a class="button primary" href="<?= e(url('document_view', ['id' => $latestEhic['id']])) ?>" target="_blank" rel="noopener">Zobrazit EHIC</a>
+                    <a class="button" href="<?= e(url('document_download', ['id' => $latestEhic['id']])) ?>">Stáhnout</a>
+                <?php endif; ?>
+                <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" data-dialog-open="documents-dialog"><?= $latestEhic ? 'Nahrát nový EHIC' : 'Nahrát EHIC' ?></a>
+            </div>
+        </section>
 
         <section class="metrics">
             <?php metric_card('Poslední teplota', $last ? number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C' : '-', $last ? display_datetime($last['event_at']) : '', severity($last ? (float)$last['temperature_celsius'] : null)); ?>
@@ -1180,7 +1211,7 @@ function page_child(): void
                             <?php if ($linkedDocuments): ?>
                                 <div class="mini-list">
                                     <?php foreach ($linkedDocuments as $document): ?>
-                                        <a href="<?= e(url('document_download', ['id' => $document['id']])) ?>"><?= e($document['title']) ?></a>
+                                        <a href="<?= e(url('document_view', ['id' => $document['id']])) ?>" target="_blank" rel="noopener"><?= e($document['title']) ?></a>
                                     <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>
@@ -1428,7 +1459,28 @@ function action_document_upload(): void
         flash('error', $e->getMessage());
     }
 
-    redirect('child', ['id' => $child['id'], 'documents' => 1]);
+    redirect('child', ['id' => $child['id'], 'documents' => 1, 'document_uploaded' => $documentType === 'ehic' ? 'ehic' : 'document']);
+}
+
+function action_document_view(): void
+{
+    $user = require_login();
+    $document = child_document_for_user((int)($_GET['id'] ?? 0), (int)$user['id']);
+    if (!$document) {
+        page_not_found();
+        return;
+    }
+    $path = document_storage_path((string)$document['storage_path']);
+    if (!is_file($path)) {
+        http_response_code(404);
+        echo 'Soubor nebyl nalezen.';
+        return;
+    }
+
+    if (!empty($document['is_sensitive'])) {
+        audit_log('child.document_viewed_sensitive', (int)$user['id'], (int)$document['family_id'], 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
+    }
+    send_document_file($document, $path, 'inline');
 }
 
 function action_document_download(): void
@@ -1446,9 +1498,27 @@ function action_document_download(): void
         return;
     }
 
-    header('Content-Type: ' . (($document['mime_type'] ?? '') ?: 'application/octet-stream'));
+    send_document_file($document, $path, 'attachment');
+}
+
+function send_document_file(array $document, string $path, string $disposition): void
+{
+    $mimeType = (string)($document['mime_type'] ?? '');
+    if ($mimeType === '') {
+        $extension = text_lower((string)pathinfo((string)$document['original_filename'], PATHINFO_EXTENSION));
+        $mimeType = [
+            'pdf' => 'application/pdf',
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'txt' => 'text/plain; charset=utf-8',
+        ][$extension] ?? 'application/octet-stream';
+    }
+    header('Content-Type: ' . $mimeType);
     header('Content-Length: ' . filesize($path));
-    header('Content-Disposition: attachment; filename="' . addcslashes((string)$document['original_filename'], "\\\"") . '"');
+    header('Content-Disposition: ' . $disposition . '; filename="' . addcslashes((string)$document['original_filename'], "\\\"") . '"');
     readfile($path);
     exit;
 }
