@@ -21,7 +21,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=13">
 </head>
 <body>
 <header class="topbar">
@@ -41,13 +41,12 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endif; ?>
 </header>
 <main class="shell">
-    <div class="pull-refresh-indicator" aria-hidden="true">Uvolněte pro aktualizaci</div>
     <?php foreach (flashes() as $flash): ?>
         <div class="flash <?= e($flash['type']) ?>"><?= e($flash['message']) ?></div>
     <?php endforeach; ?>
     <?php $content(); ?>
 </main>
-<script src="assets/app.js"></script>
+<script src="assets/app.js?v=13"></script>
 </body>
 </html><?php
 }

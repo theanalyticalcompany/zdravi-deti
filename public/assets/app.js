@@ -83,48 +83,6 @@ document.addEventListener('keydown', (event) => {
     });
 });
 
-let pullStartY = null;
-let pullDistance = 0;
-const pullThreshold = 92;
-
-const canPullToRefresh = (target) => {
-    if (window.scrollY > 0) {
-        return false;
-    }
-    if (document.querySelector('dialog[open], .ehic-menu[open]')) {
-        return false;
-    }
-    return !target.closest('input, textarea, select, button, a, summary, form');
-};
-
-window.addEventListener('touchstart', (event) => {
-    if (event.touches.length !== 1 || !canPullToRefresh(event.target)) {
-        pullStartY = null;
-        pullDistance = 0;
-        return;
-    }
-    pullStartY = event.touches[0].clientY;
-    pullDistance = 0;
-}, { passive: true });
-
-window.addEventListener('touchmove', (event) => {
-    if (pullStartY === null || event.touches.length !== 1) {
-        return;
-    }
-    pullDistance = Math.max(0, event.touches[0].clientY - pullStartY);
-    document.body.classList.toggle('is-pulling-refresh', pullDistance > 36);
-}, { passive: true });
-
-window.addEventListener('touchend', () => {
-    const shouldRefresh = pullStartY !== null && pullDistance > pullThreshold;
-    pullStartY = null;
-    pullDistance = 0;
-    document.body.classList.remove('is-pulling-refresh');
-    if (shouldRefresh) {
-        window.location.reload();
-    }
-}, { passive: true });
-
 document.querySelectorAll('select[name="medication_id"]').forEach((select) => {
     const form = select.closest('form');
     const info = form ? form.querySelector('[data-medication-info]') : null;
