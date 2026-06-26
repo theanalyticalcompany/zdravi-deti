@@ -668,7 +668,7 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
         <div class="ehic-menu-panel">
             <strong>EHIC</strong>
             <small><?= e(display_datetime($ehic['created_at'])) ?> · <?= e(file_size_label((int)$ehic['size_bytes'])) ?></small>
-            <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>" target="_blank" rel="noopener">Zobrazit</a>
+            <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>">Zobrazit</a>
             <a class="button tiny" href="<?= e(url('document_download', ['id' => $ehic['id']])) ?>">Stáhnout</a>
             <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
                 <?= csrf_field() ?>
@@ -1023,7 +1023,7 @@ function page_child(): void
                                     <?php endif; ?>
                                 </div>
                                 <div class="actions">
-                                    <a class="button tiny" href="<?= e(url('document_view', ['id' => $document['id']])) ?>" target="_blank" rel="noopener">Zobrazit</a>
+                                    <a class="button tiny" href="<?= e(url('document_view', ['id' => $document['id']])) ?>">Zobrazit</a>
                                     <a class="button tiny" href="<?= e(url('document_download', ['id' => $document['id']])) ?>">Stáhnout</a>
                                     <form method="post" action="<?= e(url('document_delete')) ?>" data-confirm="Smazat dokument?">
                                         <?= csrf_field() ?>
@@ -1229,7 +1229,7 @@ function page_child(): void
                             <?php if ($linkedDocuments): ?>
                                 <div class="mini-list">
                                     <?php foreach ($linkedDocuments as $document): ?>
-                                        <a href="<?= e(url('document_view', ['id' => $document['id']])) ?>" target="_blank" rel="noopener"><?= e($document['title']) ?></a>
+                                        <a href="<?= e(url('document_view', ['id' => $document['id']])) ?>"><?= e($document['title']) ?></a>
                                     <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>

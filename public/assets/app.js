@@ -49,6 +49,31 @@ document.querySelectorAll('dialog').forEach((dialog) => {
     });
 });
 
+document.addEventListener('click', (event) => {
+    document.querySelectorAll('.ehic-menu[open]').forEach((menu) => {
+        if (!menu.contains(event.target)) {
+            menu.removeAttribute('open');
+        }
+    });
+});
+
+document.querySelectorAll('.ehic-menu').forEach((menu) => {
+    menu.addEventListener('click', (event) => {
+        if (menu.hasAttribute('open') && event.target === menu) {
+            menu.removeAttribute('open');
+        }
+    });
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') {
+        return;
+    }
+    document.querySelectorAll('.ehic-menu[open]').forEach((menu) => {
+        menu.removeAttribute('open');
+    });
+});
+
 document.querySelectorAll('select[name="medication_id"]').forEach((select) => {
     const form = select.closest('form');
     const info = form ? form.querySelector('[data-medication-info]') : null;

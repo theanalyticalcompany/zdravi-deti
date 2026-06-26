@@ -436,10 +436,6 @@ textarea {
     gap: .45rem;
 }
 
-.ehic-menu {
-    position: relative;
-}
-
 .ehic-menu summary {
     list-style: none;
     cursor: pointer;
@@ -470,15 +466,24 @@ textarea {
     background: #7f98ad;
 }
 
+.ehic-menu[open]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(15, 23, 42, .32);
+}
+
 .ehic-menu-panel {
-    position: absolute;
-    z-index: 8;
-    top: calc(100% + .45rem);
-    left: 0;
-    width: min(260px, calc(100vw - 2rem));
+    position: fixed;
+    z-index: 41;
+    top: 50%;
+    left: 50%;
+    width: min(320px, calc(100vw - 2rem));
+    transform: translate(-50%, -50%);
     display: grid;
     gap: .5rem;
-    padding: .75rem;
+    padding: .9rem;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface);
@@ -1027,11 +1032,6 @@ th {
 
     .child-overview-head {
         flex-direction: column;
-    }
-
-    .ehic-menu-panel {
-        left: auto;
-        right: 0;
     }
 
     .wide-field {
