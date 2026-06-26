@@ -940,6 +940,9 @@ function page_child(): void
     $family = current_family((int)$user['id']);
     $child = require_child_access((int)($_GET['id'] ?? 0), (int)$user['id']);
     $range = in_array($_GET['range'] ?? '72', ['12', '24', '72'], true) ? (int)$_GET['range'] : 72;
+    $openDocuments = ($_GET['documents'] ?? '') === '1';
+    $openAppointments = ($_GET['appointments'] ?? '') === '1';
+    $documentUploaded = in_array($_GET['document_uploaded'] ?? '', ['ehic', 'document'], true) ? (string)$_GET['document_uploaded'] : '';
     $summary = child_summary((int)$child['id']);
     $timeline = timeline_data((int)$child['id'], $range);
     $records = child_records((int)$child['id']);
@@ -948,17 +951,15 @@ function page_child(): void
     encrypt_plain_documents_for_child((int)$child['id']);
     $documents = child_documents((int)$child['id']);
     $appointments = child_appointments((int)$child['id']);
+    $appointmentDocuments = appointment_documents_for_appointments(array_map(fn(array $appointment): int => (int)$appointment['id'], $appointments));
     $childDoctors = child_doctors((int)$child['id']);
-    $documentFields = healthcare_provider_fields();
+    $documentFields = $openDocuments ? healthcare_provider_fields() : [];
     $documentProviderQuery = trim((string)($_GET['document_provider_q'] ?? ''));
     $documentProviderCareField = trim((string)($_GET['document_provider_care_field'] ?? ''));
     $documentProviderCity = trim((string)($_GET['document_provider_city'] ?? ''));
-    $documentProviderResults = search_healthcare_providers($documentProviderQuery, $documentProviderCareField, $documentProviderCity, 50);
-    $openDocuments = ($_GET['documents'] ?? '') === '1';
-    $openAppointments = ($_GET['appointments'] ?? '') === '1';
-    $documentUploaded = in_array($_GET['document_uploaded'] ?? '', ['ehic', 'document'], true) ? (string)$_GET['document_uploaded'] : '';
+    $documentProviderResults = $openDocuments ? search_healthcare_providers($documentProviderQuery, $documentProviderCareField, $documentProviderCity, 50) : [];
 
-    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments, $documentUploaded) {
+    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $appointmentDocuments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments, $documentUploaded) {
         $last = $summary['last_temperature'];
         ?>
         <div class="page-head">
@@ -973,7 +974,7 @@ function page_child(): void
 
         <div class="actions child-actions">
             <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-            <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" data-dialog-open="documents-dialog">Dokumentace</a>
+            <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" <?= $openDocuments ? 'data-dialog-open="documents-dialog"' : '' ?>>Dokumentace</a>
             <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'appointments' => 1])) ?>#appointments">Kontroly</a>
             <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export pro lékaře</a>
         </div>
@@ -988,7 +989,8 @@ function page_child(): void
             $documentProviderOptions[$providerId] = $provider;
         }
         ?>
-        <dialog class="modal document-modal" id="documents-dialog" <?= $openDocuments ? 'open data-open-on-load="1"' : '' ?>>
+        <?php if ($openDocuments): ?>
+        <dialog class="modal document-modal" id="documents-dialog" open data-open-on-load="1">
             <div class="modal-head">
                 <div>
                     <h2>Dokumentace</h2>
@@ -1105,6 +1107,7 @@ function page_child(): void
                 </form>
             </section>
         </dialog>
+        <?php endif; ?>
 
         <section class="metrics">
             <?php metric_card('Poslední teplota', $last ? number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C' : '-', $last ? display_datetime($last['event_at']) : '', severity($last ? (float)$last['temperature_celsius'] : null)); ?>
@@ -1142,7 +1145,7 @@ function page_child(): void
                                 <dt>Výsledek</dt><dd><?= e(($appointment['result_note'] ?? '') !== '' ? $appointment['result_note'] : '-') ?></dd>
                                 <dt>Doporučení</dt><dd><?= e(($appointment['recommendation'] ?? '') !== '' ? $appointment['recommendation'] : '-') ?></dd>
                             </dl>
-                            <?php $linkedDocuments = appointment_documents((int)$appointment['id']); ?>
+                            <?php $linkedDocuments = $appointmentDocuments[(int)$appointment['id']] ?? []; ?>
                             <?php if ($linkedDocuments): ?>
                                 <div class="mini-list">
                                     <?php foreach ($linkedDocuments as $document): ?>

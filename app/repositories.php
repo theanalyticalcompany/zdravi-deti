@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const RUNTIME_SCHEMA_VERSION = '2026-06-26-dashboard-optimization-1';
+const RUNTIME_SCHEMA_VERSION = '2026-06-26-provider-search-optimization-1';
 
 function ensure_runtime_schema(): void
 {
@@ -116,6 +116,7 @@ function ensure_runtime_schema(): void
                 care_field TEXT NULL,
                 care_form TEXT NULL,
                 care_type TEXT NULL,
+                search_text TEXT NULL,
                 city TEXT NULL,
                 zip TEXT NULL,
                 street TEXT NULL,
@@ -133,8 +134,14 @@ function ensure_runtime_schema(): void
             )'
         );
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_name ON healthcare_providers(name)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_search_text ON healthcare_providers(search_text)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_care_field ON healthcare_providers(care_field)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_city ON healthcare_providers(city)');
+        $providerColumns = array_column(db()->query('PRAGMA table_info(healthcare_providers)')->fetchAll(), 'name');
+        if (!in_array('search_text', $providerColumns, true)) {
+            db()->exec('ALTER TABLE healthcare_providers ADD COLUMN search_text TEXT NULL');
+            db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_search_text ON healthcare_providers(search_text)');
+        }
         db()->exec(
             'CREATE TABLE IF NOT EXISTS healthcare_provider_specialties (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -351,6 +358,7 @@ function ensure_runtime_schema(): void
                 care_field VARCHAR(255) NULL,
                 care_form VARCHAR(255) NULL,
                 care_type VARCHAR(255) NULL,
+                search_text TEXT NULL,
                 city VARCHAR(160) NULL,
                 zip VARCHAR(20) NULL,
                 street VARCHAR(160) NULL,
@@ -366,10 +374,16 @@ function ensure_runtime_schema(): void
                 imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uq_healthcare_provider_source (source, source_id),
                 KEY idx_healthcare_providers_name (name),
+                KEY idx_healthcare_providers_search_text (search_text(255)),
                 KEY idx_healthcare_providers_care_field (care_field),
                 KEY idx_healthcare_providers_city (city)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+        $stmt = db()->query("SHOW COLUMNS FROM healthcare_providers LIKE 'search_text'");
+        if (!$stmt->fetch()) {
+            db()->exec('ALTER TABLE healthcare_providers ADD COLUMN search_text TEXT NULL AFTER care_type');
+            db()->exec('CREATE INDEX idx_healthcare_providers_search_text ON healthcare_providers(search_text(255))');
+        }
         db()->exec(
             'CREATE TABLE IF NOT EXISTS healthcare_provider_specialties (
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -1340,6 +1354,16 @@ function import_nrpzs_provider_row(array $row): bool
         provider_value($row, 'OborPece'),
         provider_value($row, 'FormaPece'),
         provider_value($row, 'DruhPece'),
+        provider_search_text_from_parts([
+            $name,
+            provider_value($row, 'PoskytovatelNazev'),
+            provider_value($row, 'DruhZarizeni'),
+            provider_value($row, 'OborPece'),
+            provider_value($row, 'Obec'),
+            provider_value($row, 'Ulice'),
+            provider_value($row, 'Okres'),
+            provider_value($row, 'OdbornyZastupce'),
+        ]),
         provider_value($row, 'Obec'),
         provider_value($row, 'Psc'),
         provider_value($row, 'Ulice'),
@@ -1357,8 +1381,8 @@ function import_nrpzs_provider_row(array $row): bool
 
     if (db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
         $sql = 'INSERT INTO healthcare_providers
-                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, search_text, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     name = VALUES(name),
                     provider_name = VALUES(provider_name),
@@ -1366,6 +1390,7 @@ function import_nrpzs_provider_row(array $row): bool
                     care_field = VALUES(care_field),
                     care_form = VALUES(care_form),
                     care_type = VALUES(care_type),
+                    search_text = VALUES(search_text),
                     city = VALUES(city),
                     zip = VALUES(zip),
                     street = VALUES(street),
@@ -1381,8 +1406,8 @@ function import_nrpzs_provider_row(array $row): bool
                     imported_at = VALUES(imported_at)';
     } else {
         $sql = 'INSERT INTO healthcare_providers
-                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (source, source_id, name, provider_name, facility_type, care_field, care_form, care_type, search_text, city, zip, street, house_number, region, district, phone, email, web, representative, gps, last_modified, imported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source, source_id) DO UPDATE SET
                     name = excluded.name,
                     provider_name = excluded.provider_name,
@@ -1390,6 +1415,7 @@ function import_nrpzs_provider_row(array $row): bool
                     care_field = excluded.care_field,
                     care_form = excluded.care_form,
                     care_type = excluded.care_type,
+                    search_text = excluded.search_text,
                     city = excluded.city,
                     zip = excluded.zip,
                     street = excluded.street,
@@ -1460,6 +1486,40 @@ function remove_czech_diacritics(string $value): string
     return strtr($value, $map);
 }
 
+function normalize_provider_search_text(string $value): string
+{
+    $value = text_lower(remove_czech_diacritics($value));
+    $value = preg_replace('/[^a-z0-9]+/u', ' ', $value) ?? $value;
+    return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+}
+
+function provider_search_text_from_parts(array $parts): string
+{
+    $parts = array_filter(array_map(fn($part) => trim((string)$part), $parts), fn($part) => $part !== '');
+    return normalize_provider_search_text(implode(' ', $parts));
+}
+
+function rebuild_healthcare_provider_search_texts(): void
+{
+    $stmt = db()->query('SELECT id, name, provider_name, facility_type, care_field, city, street, district, representative FROM healthcare_providers WHERE search_text IS NULL OR search_text = ""');
+    $update = db()->prepare('UPDATE healthcare_providers SET search_text = ? WHERE id = ?');
+    foreach ($stmt->fetchAll() as $provider) {
+        $update->execute([
+            provider_search_text_from_parts([
+                $provider['name'] ?? '',
+                $provider['provider_name'] ?? '',
+                $provider['facility_type'] ?? '',
+                $provider['care_field'] ?? '',
+                $provider['city'] ?? '',
+                $provider['street'] ?? '',
+                $provider['district'] ?? '',
+                $provider['representative'] ?? '',
+            ]),
+            $provider['id'],
+        ]);
+    }
+}
+
 function provider_specialties_sql(): string
 {
     if (db()->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
@@ -1477,12 +1537,12 @@ function search_healthcare_providers(string $query, string $careField = '', stri
     $city = trim($city);
 
     if ($query !== '') {
-        $tokens = preg_split('/\s+/u', $query) ?: [];
+        $tokens = preg_split('/\s+/u', normalize_provider_search_text($query)) ?: [];
         $tokens = array_values(array_filter($tokens, fn($token) => $token !== ''));
         foreach (array_slice($tokens, 0, 5) as $token) {
-            $where[] = '(name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ? OR EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_q WHERE hps_q.provider_id = healthcare_providers.id AND hps_q.specialty LIKE ?))';
+            $where[] = '(search_text LIKE ? OR name LIKE ? OR provider_name LIKE ? OR representative LIKE ? OR street LIKE ? OR district LIKE ? OR EXISTS (SELECT 1 FROM healthcare_provider_specialties hps_q WHERE hps_q.provider_id = healthcare_providers.id AND hps_q.specialty LIKE ?))';
             $like = '%' . $token . '%';
-            array_push($params, $like, $like, $like, $like, $like, $like);
+            array_push($params, $like, $like, $like, $like, $like, $like, $like);
         }
     }
     if ($careField !== '') {
@@ -1738,6 +1798,32 @@ function appointment_documents(int $appointmentId): array
     );
     $stmt->execute([$appointmentId]);
     return $stmt->fetchAll();
+}
+
+function appointment_documents_for_appointments(array $appointmentIds): array
+{
+    $appointmentIds = array_values(array_unique(array_map('intval', $appointmentIds)));
+    if (!$appointmentIds) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($appointmentIds), '?'));
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT ad.appointment_id, cd.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM appointment_documents ad
+         JOIN child_documents cd ON cd.id = ad.document_id
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE ad.appointment_id IN (' . $placeholders . ')
+         ORDER BY ad.appointment_id, cd.created_at DESC, cd.id DESC'
+    );
+    $stmt->execute($appointmentIds);
+    $items = [];
+    foreach ($stmt->fetchAll() as $document) {
+        $items[(int)$document['appointment_id']][] = $document;
+    }
+    return $items;
 }
 
 function save_child_appointment(int $childId, int $userId, ?int $appointmentId, array $data, array $documentIds): int

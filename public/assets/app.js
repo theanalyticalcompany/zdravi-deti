@@ -156,6 +156,15 @@ function escapeAttribute(value) {
 }
 
 if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost')) {
+    let serviceWorkerReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (serviceWorkerReloaded) {
+            return;
+        }
+        serviceWorkerReloaded = true;
+        window.location.reload();
+    });
+
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js').catch(() => {
             // PWA registrace je doplňková; aplikace musí fungovat i bez ní.

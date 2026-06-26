@@ -210,6 +210,7 @@ CREATE TABLE healthcare_providers (
     care_field VARCHAR(255) NULL,
     care_form VARCHAR(255) NULL,
     care_type VARCHAR(255) NULL,
+    search_text TEXT NULL,
     city VARCHAR(160) NULL,
     zip VARCHAR(20) NULL,
     street VARCHAR(160) NULL,
@@ -225,6 +226,7 @@ CREATE TABLE healthcare_providers (
     imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_healthcare_provider_source (source, source_id),
     KEY idx_healthcare_providers_name (name),
+    KEY idx_healthcare_providers_search_text (search_text(255)),
     KEY idx_healthcare_providers_care_field (care_field),
     KEY idx_healthcare_providers_city (city)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

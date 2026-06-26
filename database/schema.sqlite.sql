@@ -219,6 +219,7 @@ CREATE TABLE healthcare_providers (
     care_field TEXT NULL,
     care_form TEXT NULL,
     care_type TEXT NULL,
+    search_text TEXT NULL,
     city TEXT NULL,
     zip TEXT NULL,
     street TEXT NULL,
@@ -236,6 +237,7 @@ CREATE TABLE healthcare_providers (
 );
 
 CREATE INDEX idx_healthcare_providers_name ON healthcare_providers(name);
+CREATE INDEX idx_healthcare_providers_search_text ON healthcare_providers(search_text);
 CREATE INDEX idx_healthcare_providers_care_field ON healthcare_providers(care_field);
 CREATE INDEX idx_healthcare_providers_city ON healthcare_providers(city);
 
