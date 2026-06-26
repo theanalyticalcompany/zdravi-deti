@@ -1813,6 +1813,14 @@ function record_types(int $familyId, ?string $kind = null, bool $activeOnly = tr
     return $stmt->fetchAll();
 }
 
+function custom_care_types(int $familyId, bool $activeOnly = true): array
+{
+    return array_values(array_filter(
+        record_types($familyId, 'CARE', $activeOnly),
+        fn(array $type): bool => empty($type['is_system'])
+    ));
+}
+
 function record_type_id(int $familyId, string $code): int
 {
     $stmt = db()->prepare('SELECT id FROM record_types WHERE family_id = ? AND code = ? LIMIT 1');

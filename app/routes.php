@@ -27,6 +27,7 @@ function dispatch(): void
         case 'dashboard': page_dashboard(); break;
         case 'children': page_children(); break;
         case 'child': page_child(); break;
+        case 'child_timeline': page_child_timeline(); break;
         case 'document_upload': action_document_upload(); break;
         case 'document_view': action_document_view(); break;
         case 'document_inline': action_document_inline(); break;
@@ -52,6 +53,7 @@ function dispatch(): void
         case 'care_types': page_care_types(); break;
         case 'care_type_save': action_care_type_save(); break;
         case 'care_type_toggle': action_care_type_toggle(); break;
+        case 'care_type_delete': action_care_type_delete(); break;
         case 'family': page_family(); break;
         case 'family_save': action_family_save(); break;
         case 'family_delete': action_family_delete(); break;
@@ -794,6 +796,9 @@ function action_child_profile_save(): void
         flash('error', $e->getMessage());
     }
 
+    if (($_POST['return_to'] ?? '') === 'family') {
+        redirect('family');
+    }
     redirect('child', ['id' => $child['id']]);
 }
 
@@ -948,7 +953,7 @@ function page_child(): void
     $timeline = timeline_data((int)$child['id'], $range);
     $records = child_records((int)$child['id']);
     $medications = medications((int)$family['id'], true);
-    $careTypes = record_types((int)$family['id'], 'CARE');
+    $careTypes = custom_care_types((int)$family['id']);
     encrypt_plain_documents_for_child((int)$child['id']);
     $documents = child_documents((int)$child['id']);
     $appointments = child_appointments((int)$child['id']);
@@ -976,7 +981,6 @@ function page_child(): void
         </div>
 
         <div class="actions child-actions">
-            <a class="button" href="#child-edit">Upravit dítě</a>
             <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
             <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" data-dialog-open="documents-dialog">Dokumentace</a>
             <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'appointments' => 1])) ?>#appointments">Kontroly</a>
@@ -1117,91 +1121,6 @@ function page_child(): void
             <?php metric_card('Poslední lék', $summary['last_medication'] ? medication_label($summary['last_medication']) : '-', isset($summary['last_medication']['event_at']) ? display_datetime($summary['last_medication']['event_at']) : ''); ?>
         </section>
 
-        <section class="quick-entry">
-            <form method="post" action="<?= e(url('medication_record_save')) ?>" class="panel stack">
-                <?= csrf_field() ?>
-                <div class="section-head compact">
-                    <h2>Rychle podat lék</h2>
-                </div>
-                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                <label>Lék
-                    <select required name="medication_id">
-                        <option value="">Vyberte lék</option>
-                        <?php foreach ($medications as $med): ?>
-                            <option value="<?= e($med['id']) ?>" data-info="<?= e($med['dosing_info'] ?? '') ?>" data-source="<?= e($med['source_url'] ?? '') ?>"><?= e(medication_label($med)) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-                <div class="medication-info" data-medication-info hidden></div>
-                <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
-                <label>Poznámka <input name="note" placeholder="Volitelné"></label>
-                <button class="button primary" type="submit">Uložit podání</button>
-            </form>
-
-            <form method="post" action="<?= e(url('symptom_record_save')) ?>" class="panel stack">
-                <?= csrf_field() ?>
-                <div class="section-head compact">
-                    <h2>Rychle zapsat příznaky</h2>
-                </div>
-                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
-                <div class="symptom-grid">
-                    <?php foreach (symptom_options() as $symptom): ?>
-                        <label class="check"><input type="checkbox" name="symptoms[]" value="<?= e($symptom) ?>"> <?= e($symptom) ?></label>
-                    <?php endforeach; ?>
-                </div>
-                <label>Závažnost
-                    <select name="severity">
-                        <option value="mild">Lehké</option>
-                        <option value="moderate">Střední</option>
-                        <option value="high">Výrazné</option>
-                    </select>
-                </label>
-                <label>Poznámka <input name="note" placeholder="Volitelné"></label>
-                <button class="button primary" type="submit">Uložit příznaky</button>
-            </form>
-
-            <form method="post" action="<?= e(url('care_record_save')) ?>" class="panel stack">
-                <?= csrf_field() ?>
-                <div class="section-head compact">
-                    <h2>Rychle zapsat péči</h2>
-                </div>
-                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                <input type="hidden" name="event_at" value="<?= e(input_datetime()) ?>">
-                <label>Typ
-                    <select required name="record_type_id">
-                        <?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>"><?= e($type['name']) ?></option><?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Poznámka <input name="note" placeholder="Volitelné"></label>
-                <button class="button primary" type="submit">Uložit péči</button>
-            </form>
-        </section>
-
-        <section class="panel" id="child-edit">
-            <div class="section-head">
-                <h2>Údaje dítěte</h2>
-                <span class="muted">Věk: <?= e(child_age_label($child['date_of_birth'])) ?></span>
-            </div>
-            <?php if ($family): ?>
-                <form method="post" action="<?= e(url('child_profile_save')) ?>" class="stack child-profile-form">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                    <label>Jméno <input required name="first_name" value="<?= e($child['first_name']) ?>"></label>
-                    <label>Příjmení <input required name="last_name" value="<?= e($child['last_name']) ?>"></label>
-                    <label>Datum narození <input required type="date" name="date_of_birth" max="<?= e(date('Y-m-d')) ?>" value="<?= e($child['date_of_birth']) ?>"></label>
-                    <label>Váha kg <input type="number" step="0.1" min="0" max="200" name="weight_kg" value="<?= e($child['weight_kg'] ?? '') ?>" inputmode="decimal"></label>
-                    <label class="wide-field">Alergie <textarea name="allergies" rows="2" placeholder="Bez známých alergií, nebo konkrétní alergie"><?= e($child['allergies'] ?? '') ?></textarea></label>
-                    <button class="button primary" type="submit">Uložit údaje</button>
-                </form>
-            <?php else: ?>
-                <dl class="summary-list">
-                    <dt>Váha</dt><dd><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></dd>
-                    <dt>Alergie</dt><dd><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></dd>
-                </dl>
-            <?php endif; ?>
-        </section>
-
         <section class="panel">
             <div class="section-head" id="appointments">
                 <h2>Kontroly</h2>
@@ -1253,18 +1172,6 @@ function page_child(): void
             <?php endif; ?>
         </section>
 
-        <section class="panel">
-            <div class="section-head">
-                <h2>Časová osa</h2>
-                <div class="segmented">
-                    <?php foreach ([12, 24, 72] as $hours): ?>
-                        <a class="<?= $range === $hours ? 'active' : '' ?>" href="<?= e(url('child', ['id' => $child['id'], 'range' => $hours])) ?>"><?= $hours ?> h</a>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <?php render_timeline_chart($timeline); ?>
-        </section>
-
         <section class="forms-3">
             <form method="post" action="<?= e(url('temperature_save')) ?>" class="panel stack">
                 <?= csrf_field() ?>
@@ -1277,19 +1184,27 @@ function page_child(): void
                 <button class="button primary" type="submit">Uložit teplotu</button>
             </form>
 
-            <form method="post" action="<?= e(url('care_record_save')) ?>" class="panel stack">
-                <?= csrf_field() ?>
-                <h2>Péče</h2>
-                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                <label>Typ
-                    <select required name="record_type_id">
-                        <?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>"><?= e($type['name']) ?></option><?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Čas <input required type="datetime-local" name="event_at" value="<?= e(input_datetime()) ?>"></label>
-                <label>Poznámka <textarea name="note" rows="2"></textarea></label>
-                <button class="button primary" type="submit">Uložit péči</button>
-            </form>
+            <?php if ($careTypes): ?>
+                <form method="post" action="<?= e(url('care_record_save')) ?>" class="panel stack">
+                    <?= csrf_field() ?>
+                    <h2>Péče</h2>
+                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                    <label>Typ
+                        <select required name="record_type_id">
+                            <?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>"><?= e($type['name']) ?></option><?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label>Čas <input required type="datetime-local" name="event_at" value="<?= e(input_datetime()) ?>"></label>
+                    <label>Poznámka <textarea name="note" rows="2"></textarea></label>
+                    <button class="button primary" type="submit">Uložit péči</button>
+                </form>
+            <?php else: ?>
+                <section class="panel stack">
+                    <h2>Péče</h2>
+                    <p class="muted">Nejdřív si založte vlastní typ péče.</p>
+                    <a class="button" href="<?= e(url('care_types')) ?>">Typy péče</a>
+                </section>
+            <?php endif; ?>
 
             <form method="post" action="<?= e(url('medication_record_save')) ?>" class="panel stack">
                 <?= csrf_field() ?>
@@ -1308,6 +1223,20 @@ function page_child(): void
                 <label>Poznámka <textarea name="note" rows="2"></textarea></label>
                 <button class="button primary" type="submit">Uložit lék</button>
             </form>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>Časová osa</h2>
+                <div class="segmented" data-timeline-controls>
+                    <?php foreach ([12, 24, 72] as $hours): ?>
+                        <a class="<?= $range === $hours ? 'active' : '' ?>" href="<?= e(url('child', ['id' => $child['id'], 'range' => $hours])) ?>" data-timeline-url="<?= e(url('child_timeline', ['id' => $child['id'], 'range' => $hours])) ?>"><?= $hours ?> h</a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div data-timeline-target>
+                <?php render_timeline_chart($timeline); ?>
+            </div>
         </section>
 
         <section class="panel">
@@ -1338,7 +1267,15 @@ function page_child(): void
         </section>
 
         <?php
-    }, 'dashboard');
+    }, 'child');
+}
+
+function page_child_timeline(): void
+{
+    $user = require_login();
+    $child = require_child_access((int)($_GET['id'] ?? 0), (int)$user['id']);
+    $range = in_array($_GET['range'] ?? '72', ['12', '24', '72'], true) ? (int)$_GET['range'] : 72;
+    render_timeline_chart(timeline_data((int)$child['id'], $range));
 }
 
 function render_appointment_form(array $child, ?array $appointment, array $providerOptions, array $documents): void
@@ -1969,7 +1906,7 @@ function page_record_edit(): void
     }
     $family = current_family((int)$user['id']);
     $meds = medications((int)$family['id'], false);
-    $careTypes = record_types((int)$family['id'], 'CARE');
+    $careTypes = custom_care_types((int)$family['id']);
     render_layout('Upravit záznam', function () use ($record, $meds, $careTypes) {
         switch ($record['kind']) {
             case 'TEMPERATURE':
@@ -2097,32 +2034,45 @@ function page_care_types(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
-    $items = record_types((int)$family['id'], 'CARE', false);
-    render_layout('Rychlé záznamy', function () use ($items) {
+    $items = custom_care_types((int)$family['id'], false);
+    render_layout('Typy péče', function () use ($items) {
         ?>
         <div class="page-head">
             <div>
-                <h1>Rychlé záznamy</h1>
-                <p class="muted">Systémové položky slouží jako rychlé akce. Vlastní položky si může rodina přidat pro standardní záznam péče.</p>
+                <h1>Typy péče</h1>
+                <p class="muted">Vlastní seznam typů péče, které chcete u dětí zapisovat.</p>
             </div>
         </div>
         <section class="panel">
             <form method="post" action="<?= e(url('care_type_save')) ?>" class="inline-form">
                 <?= csrf_field() ?>
                 <input required name="name" placeholder="Například koupel, inhalace, odpočinek">
-                <button class="button primary" type="submit">Přidat vlastní záznam</button>
+                <button class="button primary" type="submit">Přidat typ péče</button>
             </form>
-            <div class="list">
-                <?php foreach ($items as $item): ?>
-                    <form method="post" action="<?= e(url('care_type_toggle')) ?>" class="list-row">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="id" value="<?= e($item['id']) ?>">
-                        <span><?= e($item['name']) ?></span>
-                        <small><?= $item['is_system'] ? 'defaultní rychlý záznam' : 'vlastní záznam' ?><?= empty($item['is_active']) ? ' · neaktivní' : '' ?></small>
-                        <?php if (!$item['is_system']): ?><button class="button tiny" type="submit"><?= !empty($item['is_active']) ? 'Deaktivovat' : 'Aktivovat' ?></button><?php endif; ?>
-                    </form>
-                <?php endforeach; ?>
-            </div>
+            <?php if (!$items): ?>
+                <div class="empty">Zatím tu není žádný typ péče. Přidejte si vlastní položky podle toho, co chcete sledovat.</div>
+            <?php else: ?>
+                <div class="list">
+                    <?php foreach ($items as $item): ?>
+                        <div class="list-row">
+                            <span><?= e($item['name']) ?></span>
+                            <small><?= empty($item['is_active']) ? 'neaktivní' : 'aktivní' ?></small>
+                            <div class="actions">
+                                <form method="post" action="<?= e(url('care_type_toggle')) ?>">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="id" value="<?= e($item['id']) ?>">
+                                    <button class="button tiny" type="submit"><?= !empty($item['is_active']) ? 'Deaktivovat' : 'Aktivovat' ?></button>
+                                </form>
+                                <form method="post" action="<?= e(url('care_type_delete')) ?>" data-confirm="Smazat typ péče?">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="id" value="<?= e($item['id']) ?>">
+                                    <button class="button tiny danger" type="submit">Smazat</button>
+                                </form>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </section>
         <?php
     }, 'care_types');
@@ -2151,6 +2101,26 @@ function action_care_type_toggle(): void
     redirect('care_types');
 }
 
+function action_care_type_delete(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $id = (int)($_POST['id'] ?? 0);
+    try {
+        $stmt = db()->prepare('DELETE FROM record_types WHERE id = ? AND family_id = ? AND is_system = 0');
+        $stmt->execute([$id, $family['id']]);
+        if ($stmt->rowCount() > 0) {
+            audit_log('care_type.deleted', (int)$user['id'], (int)$family['id'], 'record_type', $id);
+            flash('success', 'Typ péče byl smazán.');
+        } else {
+            flash('error', 'Typ péče se nepodařilo najít.');
+        }
+    } catch (Throwable $e) {
+        flash('error', 'Typ péče nejde smazat, protože už je použitý u záznamu. Můžete ho deaktivovat.');
+    }
+    redirect('care_types');
+}
+
 function page_family(): void
 {
     $user = require_login();
@@ -2176,35 +2146,51 @@ function page_family(): void
             <?php else: ?>
                 <div class="admin-list">
                     <?php foreach ($children as $child): ?>
-                        <div class="admin-row">
-                            <div>
-                                <strong><?= e($child['first_name'] . ' ' . $child['last_name']) ?></strong>
-                                <small>
-                                    narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
-                                    věk <?= e(child_age_label($child['date_of_birth'])) ?>
-                                </small>
+                        <div class="admin-item">
+                            <div class="admin-row">
+                                <div>
+                                    <strong><?= e($child['first_name'] . ' ' . $child['last_name']) ?></strong>
+                                    <small>
+                                        narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
+                                        věk <?= e(child_age_label($child['date_of_birth'])) ?>
+                                    </small>
+                                </div>
+                                <div>
+                                    <span class="muted">Váha</span>
+                                    <strong><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></strong>
+                                </div>
+                                <div>
+                                    <span class="muted">Alergie</span>
+                                    <strong><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></strong>
+                                </div>
+                                <div class="actions">
+                                    <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>">Detail</a>
+                                    <?php if ($isOwner): ?><a class="button tiny" href="#child-edit-<?= e($child['id']) ?>">Upravit</a><?php endif; ?>
+                                    <a class="button tiny" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>">Dokumenty</a>
+                                    <a class="button tiny" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
+                                    <a class="button tiny" href="#family-access">Přístupy</a>
+                                    <?php if ($isOwner): ?>
+                                        <form method="post" action="<?= e(url('child_delete')) ?>" data-confirm="Smazání dítěte odstraní i všechny zdravotní záznamy a dokumenty.">
+                                            <?= csrf_field() ?>
+                                            <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                                            <button class="button tiny danger" type="submit">Smazat</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                            <div>
-                                <span class="muted">Váha</span>
-                                <strong><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></strong>
-                            </div>
-                            <div>
-                                <span class="muted">Alergie</span>
-                                <strong><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></strong>
-                            </div>
-                            <div class="actions">
-                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id']])) ?>">Detail</a>
-                                <a class="button tiny" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>">Dokumenty</a>
-                                <a class="button tiny" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-                                <a class="button tiny" href="#family-access">Přístupy</a>
-                                <?php if ($isOwner): ?>
-                                    <form method="post" action="<?= e(url('child_delete')) ?>" data-confirm="Smazání dítěte odstraní i všechny zdravotní záznamy a dokumenty.">
-                                        <?= csrf_field() ?>
-                                        <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                                        <button class="button tiny danger" type="submit">Smazat</button>
-                                    </form>
-                                <?php endif; ?>
-                            </div>
+                            <?php if ($isOwner): ?>
+                                <form id="child-edit-<?= e($child['id']) ?>" method="post" action="<?= e(url('child_profile_save')) ?>" class="child-inline-edit form-grid">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                                    <input type="hidden" name="return_to" value="family">
+                                    <label>Jméno <input required name="first_name" value="<?= e($child['first_name']) ?>"></label>
+                                    <label>Příjmení <input required name="last_name" value="<?= e($child['last_name']) ?>"></label>
+                                    <label>Datum narození <input required type="date" name="date_of_birth" max="<?= e(date('Y-m-d')) ?>" value="<?= e($child['date_of_birth']) ?>"></label>
+                                    <label>Váha kg <input type="number" step="0.1" min="0" max="200" name="weight_kg" value="<?= e($child['weight_kg'] ?? '') ?>" inputmode="decimal"></label>
+                                    <label class="wide-field">Alergie <textarea name="allergies" rows="2"><?= e($child['allergies'] ?? '') ?></textarea></label>
+                                    <button class="button primary" type="submit">Uložit změny</button>
+                                </form>
+                            <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -2508,7 +2494,6 @@ function page_export(): void
     $includeDocuments = export_flag('include_documents', true, $hasOptions);
     $includeEhic = export_flag('include_ehic', false, $hasOptions);
     $includeCancelled = export_flag('include_cancelled', false, $hasOptions);
-    $detailLevel = in_array($_GET['detail_level'] ?? 'standard', ['brief', 'standard'], true) ? (string)$_GET['detail_level'] : 'standard';
     $stmt = db()->prepare(
         'SELECT hr.*, rt.kind, rt.code, rt.name AS type_name, tr.temperature_celsius, m.name AS medication_name,
                 m.dosage_form AS medication_dosage_form,
@@ -2542,11 +2527,10 @@ function page_export(): void
         return true;
     }));
     $timeline72 = timeline_data((int)$child['id'], 72);
-    $doctors = child_doctors((int)$child['id']);
     $appointments = $includeAppointments ? child_appointments_between((int)$child['id'], $fromDb, $toDb, $includeCancelled) : [];
     $documents = $includeDocuments ? child_documents_between((int)$child['id'], $fromDb, $toDb, $includeEhic) : [];
 
-    render_layout('Export pro lékaře', function () use ($child, $records, $from, $to, $timeline72, $doctors, $appointments, $documents, $includeTemperature, $includeMedication, $includeSymptoms, $includeCare, $includeAppointments, $includeDocuments, $includeEhic, $includeCancelled, $detailLevel) {
+    render_layout('Export pro lékaře', function () use ($child, $records, $from, $to, $timeline72, $appointments, $documents, $includeTemperature, $includeMedication, $includeSymptoms, $includeCare, $includeAppointments, $includeDocuments, $includeEhic, $includeCancelled) {
         $temps = array_filter($records, fn($r) => $r['kind'] === 'TEMPERATURE');
         $max = $temps ? max(array_map(fn($r) => (float)$r['temperature_celsius'], $temps)) : null;
         ?>
@@ -2567,12 +2551,6 @@ function page_export(): void
                 <input type="hidden" name="export_options" value="1">
                 <label>Od <input type="date" name="from" value="<?= e($from) ?>"></label>
                 <label>Do <input type="date" name="to" value="<?= e($to) ?>"></label>
-                <label>Detail
-                    <select name="detail_level">
-                        <option value="standard" <?= $detailLevel === 'standard' ? 'selected' : '' ?>>Podrobný</option>
-                        <option value="brief" <?= $detailLevel === 'brief' ? 'selected' : '' ?>>Stručný</option>
-                    </select>
-                </label>
                 <label class="check"><input type="checkbox" name="include_temperature" value="1" <?= $includeTemperature ? 'checked' : '' ?>> Teploty</label>
                 <label class="check"><input type="checkbox" name="include_medication" value="1" <?= $includeMedication ? 'checked' : '' ?>> Léky</label>
                 <label class="check"><input type="checkbox" name="include_symptoms" value="1" <?= $includeSymptoms ? 'checked' : '' ?>> Příznaky</label>
@@ -2592,7 +2570,6 @@ function page_export(): void
                 <dt>Váha</dt><dd><?= e(child_weight_label($child['weight_kg'] ?? null)) ?></dd>
                 <dt>Alergie</dt><dd><?= e(($child['allergies'] ?? '') !== '' ? $child['allergies'] : '-') ?></dd>
                 <dt>Období</dt><dd><?= e(date('d.m.Y', strtotime($from)) . ' - ' . date('d.m.Y', strtotime($to))) ?></dd>
-                <dt>Detail exportu</dt><dd><?= e(export_detail_level_label($detailLevel)) ?></dd>
                 <dt>Vytvořeno</dt><dd><?= e(date('d.m.Y H:i')) ?></dd>
                 <dt>Počet měření</dt><dd><?= count($temps) ?></dd>
                 <dt>Nejvyšší teplota</dt><dd><?= $max ? e(number_format($max, 1, ',', ' ') . ' °C') : '-' ?></dd>
@@ -2602,24 +2579,6 @@ function page_export(): void
             <h2>Graf za posledních 72 hodin</h2>
             <?php render_timeline_chart($timeline72); ?>
         </section>
-        <?php if ($doctors): ?>
-            <section class="panel print-flat">
-                <h2>Ošetřující lékaři</h2>
-                <table>
-                    <thead><tr><th>Role/obor</th><th>Poskytovatel</th><th>Adresa</th><th>Kontakt</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($doctors as $doctor): ?>
-                        <tr>
-                            <td><?= e($doctor['role_label'] ?: (provider_specialty_label($doctor) ?: '-')) ?></td>
-                            <td><?= e($doctor['name']) ?></td>
-                            <td><?= e(provider_address_label($doctor)) ?></td>
-                            <td><?= e(provider_contact_label($doctor)) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </section>
-        <?php endif; ?>
         <?php if ($appointments): ?>
             <section class="panel print-flat">
                 <h2>Kontroly</h2>
@@ -2632,8 +2591,8 @@ function page_export(): void
                             <td><?= e(appointment_status_label($appointment['status'] ?? 'planned')) ?></td>
                             <td><?= e($appointment['appointment_type']) ?></td>
                             <td><?= e(($appointment['provider_name'] ?? '') !== '' ? $appointment['provider_name'] : '-') ?></td>
-                            <td><?= e($detailLevel === 'brief' ? $appointment['title'] : (($appointment['result_note'] ?? '') ?: $appointment['title'])) ?></td>
-                            <td><?= e($detailLevel === 'brief' ? '' : (($appointment['recommendation'] ?? '') ?: '-')) ?></td>
+                            <td><?= e(($appointment['result_note'] ?? '') ?: $appointment['title']) ?></td>
+                            <td><?= e(($appointment['recommendation'] ?? '') ?: '-') ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
@@ -2652,7 +2611,7 @@ function page_export(): void
                             <td><?= e(document_type_label($document['document_type'] ?? 'general')) ?><?= !empty($document['is_sensitive']) ? ' (citlivé)' : '' ?></td>
                             <td><?= e($document['title']) ?></td>
                             <td><?= e(($document['provider_name'] ?? '') !== '' ? $document['provider_name'] : '-') ?></td>
-                            <td><?= e($detailLevel === 'brief' ? '' : (($document['note'] ?? '') ?: '-')) ?></td>
+                            <td><?= e(($document['note'] ?? '') ?: '-') ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
@@ -2669,7 +2628,7 @@ function page_export(): void
                         <td><?= e(display_datetime($record['event_at'])) ?></td>
                         <td><?= e($record['type_name']) ?></td>
                         <td><?= e(record_detail_label($record)) ?></td>
-                        <td><?= e($detailLevel === 'brief' ? '' : $record['note']) ?></td>
+                        <td><?= e($record['note']) ?></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>

@@ -99,6 +99,21 @@ try {
     assert_true($childOne > 0 && $childTwo > 0 && $childOne !== $childTwo, 'two children are created');
 
     $family = $owner->get('/?r=family');
+    assert_contains($family->body, 'child-edit-' . $childOne, 'child can be edited from family management');
+    $owner->post('/?r=child_profile_save', [
+        'csrf' => csrf_from($family->body),
+        'child_id' => (string)$childOne,
+        'return_to' => 'family',
+        'first_name' => 'Anna',
+        'last_name' => 'Testova',
+        'date_of_birth' => '2021-01-01',
+        'weight_kg' => '19',
+        'allergies' => 'penicilin',
+    ]);
+    $family = $owner->followLastRedirect();
+    assert_contains($family->body, '19', 'child edit from family management is saved');
+
+    $family = $owner->get('/?r=family');
     $owner->post('/?r=member_add', [
         'csrf' => csrf_from($family->body),
         'email' => 'parent@example.test',
@@ -130,8 +145,36 @@ try {
     assert_contains($parentDashboard->body, 'Anna Testova', 'shared child is visible to invited parent');
     assert_not_contains($parentDashboard->body, 'Boris Test', 'unshared child is not visible to invited parent');
 
+    $careTypesPage = $owner->get('/?r=care_types');
+    assert_contains($careTypesPage->body, 'Typy péče', 'care type page is renamed');
+    assert_not_contains($careTypesPage->body, 'Teplota', 'system record types are not listed as user care types');
+    $owner->post('/?r=care_type_save', [
+        'csrf' => csrf_from($careTypesPage->body),
+        'name' => 'Inhalace',
+    ]);
+    $careTypesPage = $owner->followLastRedirect();
+    assert_contains($careTypesPage->body, 'Inhalace', 'custom care type is listed');
+    $owner->post('/?r=care_type_save', [
+        'csrf' => csrf_from($careTypesPage->body),
+        'name' => 'Koupel',
+    ]);
+    $careTypesPage = $owner->followLastRedirect();
+    assert_contains($careTypesPage->body, 'Koupel', 'second custom care type is listed');
+    $owner->post('/?r=care_type_delete', [
+        'csrf' => csrf_from($careTypesPage->body),
+        'id' => (string)care_type_id_by_name($pdo, 'Koupel'),
+    ]);
+    $careTypesPage = $owner->followLastRedirect();
+    assert_not_contains($careTypesPage->body, 'Koupel', 'unused custom care type can be deleted');
+
     $childPage = $owner->get('/?r=child&id=' . $childOne);
-    assert_all_controls($childPage->body, ['Uložit teplotu', 'Uložit lék', 'Uložit příznaky', 'Uložit péči', 'Kontroly', 'Export pro lékaře'], 'child detail controls');
+    assert_all_controls($childPage->body, ['Uložit teplotu', 'Uložit lék', 'Uložit péči', 'Kontroly', 'Export pro lékaře'], 'child detail controls');
+    assert_not_contains($childPage->body, 'Uložit příznaky', 'symptom quick entry is removed from child detail');
+    assert_contains($childPage->body, 'data-timeline-url', 'timeline has AJAX refresh links');
+
+    $timeline = $owner->get('/?r=child_timeline&id=' . $childOne . '&range=24');
+    assert_status($timeline, 200, 'timeline AJAX route returns HTTP 200');
+    assert_contains($timeline->body, 'chart-wrap', 'timeline AJAX route renders chart markup');
 
     $owner->post('/?r=temperature_save', [
         'csrf' => csrf_from($childPage->body),
@@ -154,17 +197,6 @@ try {
     ]);
     $childPage = $owner->followLastRedirect();
     assert_contains($childPage->body, 'Podání léku', 'medication record is saved');
-
-    $owner->post('/?r=symptom_record_save', [
-        'csrf' => csrf_from($childPage->body),
-        'child_id' => (string)$childOne,
-        'event_at' => date('Y-m-d\TH:i'),
-        'symptoms' => ['kašel'],
-        'severity' => 'mild',
-        'note' => 'test priznaku',
-    ]);
-    $childPage = $owner->followLastRedirect();
-    assert_contains($childPage->body, 'kašel', 'symptom record is saved');
 
     $careTypeId = first_care_type_id($pdo);
     $owner->post('/?r=care_record_save', [
@@ -237,6 +269,8 @@ try {
 
     $export = $owner->get('/?r=export&child_id=' . $childOne);
     assert_all_controls($export->body, ['Uložit nebo tisknout PDF', 'Aktualizovat export'], 'doctor export controls');
+    assert_not_contains($export->body, 'Detail exportu', 'doctor export no longer has detail level');
+    assert_not_contains($export->body, 'Ošetřující lékaři', 'doctor export does not include assigned doctors');
 
     echo "OK orchestrated flows\n";
 } catch (Throwable $e) {
@@ -500,7 +534,14 @@ function first_medication_id(PDO $pdo): int
 
 function first_care_type_id(PDO $pdo): int
 {
-    return (int)$pdo->query("SELECT id FROM record_types WHERE kind = 'CARE' AND is_active = 1 ORDER BY is_system DESC, id LIMIT 1")->fetchColumn();
+    return (int)$pdo->query("SELECT id FROM record_types WHERE kind = 'CARE' AND is_system = 0 AND is_active = 1 ORDER BY id LIMIT 1")->fetchColumn();
+}
+
+function care_type_id_by_name(PDO $pdo, string $name): int
+{
+    $stmt = $pdo->prepare("SELECT id FROM record_types WHERE kind = 'CARE' AND is_system = 0 AND name = ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$name]);
+    return (int)$stmt->fetchColumn();
 }
 
 function latest_ehic_id(PDO $pdo, int $childId): int

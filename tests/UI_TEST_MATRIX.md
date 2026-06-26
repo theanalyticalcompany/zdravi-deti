@@ -20,9 +20,9 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 - Ověření: pozvaný rodič se registruje, nejdřív nevidí žádné dítě, po nastavení vidí jen vybrané dítě.
 
 ### TC-FLOW-004 Zdravotní záznamy dítěte
-- Ovládací prvky: `Uložit teplotu`, `Uložit lék`, `Uložit příznaky`, `Uložit péči`, `Upravit`, `Uložit změny`, `Smazat`.
+- Ovládací prvky: `Uložit teplotu`, `Uložit lék`, `Uložit péči`, `Upravit`, `Uložit změny`, `Smazat`.
 - Krytí: `tests/orchestrated_flows.php`, `tests/smoke.php`.
-- Ověření: uloží se měření, lék, příznak a péče; záznam jde otevřít pro editaci a smazat.
+- Ověření: uloží se měření, lék a uživatelský typ péče; záznam jde otevřít pro editaci a smazat. Rychlý zápis příznaků už v detailu dítěte není.
 
 ### TC-FLOW-005 EHIC
 - Ovládací prvky: ikona EHIC, `Nahrát`, `Zobrazit`, `Stáhnout`, `Smazat`, `Zavřít`, `Uložit EHIC`.
@@ -44,10 +44,10 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 - Krytí: `tests/orchestrated_flows.php`, `tests/smoke.php`.
 - Ověření: přizvaný rodič může smazat svůj účet; vlastník rodiny tlačítko nevidí, dokud rodina existuje.
 
-### TC-FLOW-009 Léčiva a rychlé záznamy
-- Ovládací prvky: `Přidat`, `Aktivovat`, `Deaktivovat`, `Přidat vlastní záznam`.
-- Krytí: `tests/smoke.php`; UI kontrola bude rozšířena při další změně lékového formuláře.
-- Ověření: systémové léky existují v DB, vlastní léky a vlastní rychlé záznamy lze přidat.
+### TC-FLOW-009 Léčiva a typy péče
+- Ovládací prvky: `Přidat`, `Aktivovat`, `Deaktivovat`, `Smazat`, `Přidat typ péče`.
+- Krytí: `tests/orchestrated_flows.php`, `tests/smoke.php`.
+- Ověření: systémové léky existují v DB; typy péče jsou jen uživatelské, lze je přidat, aktivovat/deaktivovat a nepoužitý typ smazat.
 
 ### TC-FLOW-010 Lékaři dítěte
 - Ovládací prvky: `Lékaři`, `Hledat`, `Přidat`, `Odebrat`, `Detail dítěte`, `Zpět na správu rodiny`.

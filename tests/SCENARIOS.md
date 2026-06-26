@@ -33,8 +33,8 @@ Spustitelné kontroly:
 
 1. Na detailu dítěte uložit teplotu.
 2. Uložit podání léku.
-3. Uložit příznak.
-4. Uložit péči.
+3. Ověřit samostatný refresh časové osy bez reloadu celé stránky.
+4. Uložit uživatelský typ péče.
 5. Otevřít editaci záznamu.
 6. Smazat záznam.
 
@@ -73,14 +73,15 @@ Spustitelné kontroly:
 4. Vlastník rodiny možnost smazání účtu nevidí, dokud rodina existuje.
 5. Ověřit odhlášení ostatních zařízení, pokud existují.
 
-## TC-09 Léčiva a rychlé záznamy
+## TC-09 Léčiva a typy péče
 
 1. Otevřít Léčiva.
 2. Ověřit existenci systémových léků.
 3. Přidat vlastní lék.
 4. Aktivovat/deaktivovat vlastní lék.
-5. Otevřít Rychlé záznamy.
-6. Přidat vlastní typ péče a aktivovat/deaktivovat ho.
+5. Otevřít Typy péče.
+6. Ověřit, že systémové položky péče nejsou v uživatelském seznamu.
+7. Přidat vlastní typ péče, aktivovat/deaktivovat ho a nepoužitý typ smazat.
 
 ## TC-10 Lékaři dítěte
 

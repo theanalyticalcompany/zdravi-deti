@@ -83,6 +83,33 @@ document.addEventListener('keydown', (event) => {
     });
 });
 
+document.querySelectorAll('[data-timeline-controls]').forEach((controls) => {
+    const target = document.querySelector('[data-timeline-target]');
+    if (!target) {
+        return;
+    }
+
+    controls.querySelectorAll('a[data-timeline-url]').forEach((link) => {
+        link.addEventListener('click', async (event) => {
+            event.preventDefault();
+            try {
+                const response = await fetch(link.getAttribute('data-timeline-url'), {
+                    headers: { 'X-Requested-With': 'fetch' }
+                });
+                if (!response.ok) {
+                    throw new Error('Timeline request failed');
+                }
+                target.innerHTML = await response.text();
+                controls.querySelectorAll('a').forEach((item) => item.classList.remove('active'));
+                link.classList.add('active');
+                window.history.replaceState(null, '', link.href);
+            } catch (error) {
+                window.location.href = link.href;
+            }
+        });
+    });
+});
+
 document.querySelectorAll('select[name="medication_id"]').forEach((select) => {
     const form = select.closest('form');
     const info = form ? form.querySelector('[data-medication-info]') : null;

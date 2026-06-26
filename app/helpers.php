@@ -263,11 +263,6 @@ function appointment_status_label(?string $status): string
     ][$status ?: 'planned'] ?? 'Plánovaná';
 }
 
-function export_detail_level_label(string $level): string
-{
-    return $level === 'brief' ? 'Stručně' : 'Podrobně';
-}
-
 function db_datetime(string $localValue): string
 {
     $date = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $localValue);

@@ -6,6 +6,9 @@ function render_layout(string $title, callable $content, string $active = ''): v
 {
     $user = current_user();
     $family = $user ? current_family((int)$user['id']) : null;
+    $navChildren = $user ? children_for_user((int)$user['id']) : [];
+    $currentRoute = (string)($_GET['r'] ?? 'dashboard');
+    $currentChildId = (int)($_GET['id'] ?? $_GET['child_id'] ?? 0);
     ?><!doctype html>
 <html lang="cs">
 <head>
@@ -21,7 +24,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="stylesheet" href="assets/app.css?v=14">
+    <link rel="stylesheet" href="assets/app.css?v=15">
 </head>
 <body>
 <header class="topbar">
@@ -30,8 +33,11 @@ function render_layout(string $title, callable $content, string $active = ''): v
         <nav class="nav">
             <a class="<?= $active === 'dashboard' ? 'active' : '' ?>" href="<?= e(url('dashboard')) ?>">Přehled</a>
             <a class="<?= $active === 'family' ? 'active' : '' ?>" href="<?= e(url('family')) ?>">Správa rodiny</a>
+            <?php foreach ($navChildren as $navChild): ?>
+                <a class="<?= $currentRoute === 'child' && $currentChildId === (int)$navChild['id'] ? 'active' : '' ?>" href="<?= e(url('child', ['id' => $navChild['id']])) ?>"><?= e($navChild['first_name']) ?></a>
+            <?php endforeach; ?>
             <a class="<?= $active === 'medications' ? 'active' : '' ?>" href="<?= e(url('medications')) ?>">Léčiva</a>
-            <a class="<?= $active === 'care_types' ? 'active' : '' ?>" href="<?= e(url('care_types')) ?>">Rychlé záznamy</a>
+            <a class="<?= $active === 'care_types' ? 'active' : '' ?>" href="<?= e(url('care_types')) ?>">Typy péče</a>
             <a class="<?= $active === 'settings' ? 'active' : '' ?>" href="<?= e(url('settings')) ?>">Nastavení</a>
         </nav>
         <div class="account">
@@ -46,7 +52,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endforeach; ?>
     <?php $content(); ?>
 </main>
-<script src="assets/app.js?v=14"></script>
+<script src="assets/app.js?v=15"></script>
 </body>
 </html><?php
 }
@@ -74,6 +80,15 @@ function render_timeline_chart(array $timeline): void
     $minY = 35.0;
     $maxY = 41.0;
     $points = [];
+    $medLegend = [];
+    $medNumbers = [];
+    foreach ($meds as $index => $med) {
+        $label = medication_label($med);
+        if (!isset($medLegend[$label])) {
+            $medLegend[$label] = count($medLegend) + 1;
+        }
+        $medNumbers[$index] = $medLegend[$label];
+    }
     foreach ($temps as $temp) {
         $x = $pad + ((strtotime($temp['event_at']) - $fromTs) / ($toTs - $fromTs)) * ($width - 2 * $pad);
         $clamped = max($minY, min($maxY, (float)$temp['temperature_celsius']));
@@ -102,17 +117,17 @@ function render_timeline_chart(array $timeline): void
                         <title><?= e(number_format($p['value'], 1, ',', ' ') . ' °C, ' . display_datetime($p['event_at'])) ?></title>
                     </circle>
                 <?php endforeach; ?>
-                <?php foreach ($meds as $med):
+                <?php foreach ($meds as $index => $med):
                     $x = $pad + ((strtotime($med['event_at']) - $fromTs) / ($toTs - $fromTs)) * ($width - 2 * $pad);
-                    $labelAnchor = $x > ($width - 180) ? 'end' : 'start';
-                    $labelX = $labelAnchor === 'end' ? $x - 10 : $x + 10;
+                    $number = $medNumbers[$index] ?? ($index + 1);
+                    $markerY = $height - $pad + 12 + (($index % 2) * 15);
                     ?>
                     <g>
-                        <line x1="<?= round($x, 1) ?>" y1="<?= $height - $pad ?>" x2="<?= round($x, 1) ?>" y2="<?= $height - $pad + 14 ?>" class="med-line"/>
-                        <circle cx="<?= round($x, 1) ?>" cy="<?= $height - $pad + 20 ?>" r="5" class="med-dot">
-                            <title><?= e(medication_label($med) . ', ' . display_datetime($med['event_at'])) ?></title>
+                        <line x1="<?= round($x, 1) ?>" y1="<?= $height - $pad ?>" x2="<?= round($x, 1) ?>" y2="<?= $markerY - 7 ?>" class="med-line"/>
+                        <circle cx="<?= round($x, 1) ?>" cy="<?= $markerY ?>" r="9" class="med-dot">
+                            <title><?= e($number . ': ' . medication_label($med) . ', ' . display_datetime($med['event_at'])) ?></title>
                         </circle>
-                        <text x="<?= round($labelX, 1) ?>" y="<?= $height - $pad + 25 ?>" text-anchor="<?= $labelAnchor ?>" class="med-label"><?= e(medication_label($med)) ?></text>
+                        <text x="<?= round($x, 1) ?>" y="<?= $markerY + 4 ?>" text-anchor="middle" class="med-label"><?= e($number) ?></text>
                     </g>
                 <?php endforeach; ?>
             </svg>
@@ -124,8 +139,8 @@ function render_timeline_chart(array $timeline): void
             </div>
             <?php if ($meds): ?>
                 <div class="med-events" aria-label="Podané léky v grafu">
-                    <?php foreach ($meds as $med): ?>
-                        <span><?= e(display_datetime($med['event_at']) . ' - ' . medication_label($med)) ?></span>
+                    <?php foreach ($medLegend as $label => $number): ?>
+                        <span><?= e($number . ': ' . $label) ?></span>
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
