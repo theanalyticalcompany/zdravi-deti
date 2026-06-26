@@ -57,7 +57,9 @@ Podrobnější postup je v `docs/NASAZENI_A_PROVOZ.md`.
 
 - Syntax všech PHP souborů: `php -l app/routes.php` nebo celý strom podle GitHub Actions workflow.
 - Smoke test nad dočasnou SQLite databází: `php tests/smoke.php`.
+- Orchestrovaný HTTP/UI průchod včetně EHIC: `php tests/orchestrated_flows.php`.
 - Ruční scénáře pro klíčové flow jsou v `tests/SCENARIOS.md`.
+- Matice ovládacích prvků a jejich testů je v `tests/UI_TEST_MATRIX.md`.
 - GitHub Actions obsahují PHP kontrolu a bezpečnostní secret scan přes Gitleaks.
 
 ## PWA

@@ -893,6 +893,28 @@ th {
     color: var(--muted);
 }
 
+.document-viewer {
+    display: grid;
+    gap: .85rem;
+}
+
+.document-preview-image,
+.document-preview-frame {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+}
+
+.document-preview-image {
+    max-height: 72vh;
+    object-fit: contain;
+}
+
+.document-preview-frame {
+    min-height: 72vh;
+}
+
 .compact-search {
     grid-template-columns: minmax(12rem, 1fr) minmax(8rem, .7fr) minmax(10rem, 1fr) auto;
     margin-bottom: 0;

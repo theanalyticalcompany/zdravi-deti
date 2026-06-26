@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-$configPath = __DIR__ . '/../config/config.php';
+$configPath = getenv('ZD_CONFIG_PATH') ?: (__DIR__ . '/../config/config.php');
 if (!is_file($configPath)) {
     $configPath = __DIR__ . '/../config/config.example.php';
 }

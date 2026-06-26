@@ -29,6 +29,7 @@ function dispatch(): void
         case 'child': page_child(); break;
         case 'document_upload': action_document_upload(); break;
         case 'document_view': action_document_view(); break;
+        case 'document_inline': action_document_inline(); break;
         case 'document_download': action_document_download(); break;
         case 'document_delete': action_document_delete(); break;
         case 'appointment_save': action_appointment_save(); break;
@@ -1504,11 +1505,54 @@ function action_document_view(): void
         echo 'Soubor nebyl nalezen.';
         return;
     }
-    encrypt_document_file_at_rest_if_needed($document);
+    audit_sensitive_document_view($document, (int)$user['id']);
+    $mimeType = document_response_mime_type($document);
+    $isImage = strpos($mimeType, 'image/') === 0;
+    $isPdf = $mimeType === 'application/pdf';
+    render_layout($document['title'] ?: 'Dokument', function () use ($document, $mimeType, $isImage, $isPdf) {
+        ?>
+        <div class="page-head">
+            <div>
+                <h1><?= e($document['title'] ?: 'Dokument') ?></h1>
+                <p class="muted"><?= e(document_type_label($document['document_type'] ?? 'general')) ?> · <?= e($document['original_filename']) ?></p>
+            </div>
+            <div class="actions">
+                <a class="button" href="<?= e(url('child', ['id' => $document['child_id'], 'documents' => 1])) ?>">Zpět na dokumentaci</a>
+                <a class="button" href="<?= e(url('document_download', ['id' => $document['id']])) ?>">Stáhnout</a>
+            </div>
+        </div>
+        <section class="panel document-viewer">
+            <?php if ($isImage): ?>
+                <img class="document-preview-image" src="<?= e(url('document_inline', ['id' => $document['id']])) ?>" alt="<?= e($document['title'] ?: 'Dokument') ?>">
+            <?php elseif ($isPdf): ?>
+                <iframe class="document-preview-frame" src="<?= e(url('document_inline', ['id' => $document['id']])) ?>" title="<?= e($document['title'] ?: 'Dokument') ?>"></iframe>
+            <?php else: ?>
+                <div class="empty">Tento typ dokumentu nejde bezpečně zobrazit přímo v aplikaci. Použijte stažení souboru.</div>
+            <?php endif; ?>
+            <?php if (!empty($document['note'])): ?>
+                <p class="muted"><?= e($document['note']) ?></p>
+            <?php endif; ?>
+            <small class="muted"><?= e($mimeType) ?> · <?= e(file_size_label((int)$document['size_bytes'])) ?></small>
+        </section>
+        <?php
+    });
+}
 
-    if (!empty($document['is_sensitive'])) {
-        audit_log('child.document_viewed_sensitive', (int)$user['id'], (int)$document['family_id'], 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
+function action_document_inline(): void
+{
+    $user = require_login();
+    $document = child_document_for_user((int)($_GET['id'] ?? 0), (int)$user['id']);
+    if (!$document) {
+        page_not_found();
+        return;
     }
+    $path = document_storage_path((string)$document['storage_path']);
+    if (!is_file($path)) {
+        http_response_code(404);
+        echo 'Soubor nebyl nalezen.';
+        return;
+    }
+    audit_sensitive_document_view($document, (int)$user['id']);
     send_document_file($document, $path, 'inline');
 }
 
@@ -1531,21 +1575,34 @@ function action_document_download(): void
     send_document_file($document, $path, 'attachment');
 }
 
-function send_document_file(array $document, string $path, string $disposition): void
+function audit_sensitive_document_view(array $document, int $userId): void
+{
+    if (!empty($document['is_sensitive'])) {
+        audit_log('child.document_viewed_sensitive', $userId, (int)$document['family_id'], 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
+    }
+}
+
+function document_response_mime_type(array $document): string
 {
     $mimeType = (string)($document['mime_type'] ?? '');
-    if ($mimeType === '') {
-        $extension = text_lower((string)pathinfo((string)$document['original_filename'], PATHINFO_EXTENSION));
-        $mimeType = [
-            'pdf' => 'application/pdf',
-            'jpg' => 'image/jpeg',
-            'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'webp' => 'image/webp',
-            'gif' => 'image/gif',
-            'txt' => 'text/plain; charset=utf-8',
-        ][$extension] ?? 'application/octet-stream';
+    if ($mimeType !== '') {
+        return $mimeType;
     }
+    $extension = text_lower((string)pathinfo((string)$document['original_filename'], PATHINFO_EXTENSION));
+    return [
+        'pdf' => 'application/pdf',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'gif' => 'image/gif',
+        'txt' => 'text/plain; charset=utf-8',
+    ][$extension] ?? 'application/octet-stream';
+}
+
+function send_document_file(array $document, string $path, string $disposition): void
+{
+    $mimeType = document_response_mime_type($document);
     $contents = file_get_contents($path);
     if ($contents === false) {
         throw new RuntimeException('Soubor se nepodařilo načíst.');
