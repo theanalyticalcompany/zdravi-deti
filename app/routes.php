@@ -562,16 +562,7 @@ function page_dashboard(): void
 {
     $user = require_login();
     ensure_family((int)$user['id'], $user['display_name']);
-    $children = children_for_user((int)$user['id']);
-    $overview = [];
-    foreach ($children as $child) {
-        $overview[] = [
-            'child' => $child,
-            'summary' => child_summary((int)$child['id']),
-            'timeline' => timeline_data((int)$child['id'], 72),
-            'ehic' => latest_child_document_by_type((int)$child['id'], 'ehic'),
-        ];
-    }
+    $overview = dashboard_overview((int)$user['id'], 72);
 
     render_layout('Přehled', function () use ($overview) {
         ?>

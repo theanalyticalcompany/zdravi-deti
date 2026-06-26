@@ -97,21 +97,37 @@ function send_security_headers(): void
 
 function current_user(): ?array
 {
+    static $cachedSessionUserId = null;
+    static $cachedUser = null;
+
     if (empty($_SESSION['user_id'])) {
+        $cachedSessionUserId = null;
+        $cachedUser = null;
         return null;
     }
-    $user = find_user((int)$_SESSION['user_id']);
+    $sessionUserId = (int)$_SESSION['user_id'];
+    if ($cachedSessionUserId === $sessionUserId) {
+        return $cachedUser;
+    }
+
+    $user = find_user($sessionUserId);
     if (!$user) {
+        $cachedSessionUserId = null;
+        $cachedUser = null;
         return null;
     }
     if (user_session_revoked((int)$user['id'])) {
         $_SESSION = [];
+        $cachedSessionUserId = null;
+        $cachedUser = null;
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
         }
         return null;
     }
     touch_user_session((int)$user['id']);
+    $cachedSessionUserId = $sessionUserId;
+    $cachedUser = $user;
     return $user;
 }
 

@@ -2,9 +2,16 @@
 
 declare(strict_types=1);
 
+const RUNTIME_SCHEMA_VERSION = '2026-06-26-dashboard-optimization-1';
+
 function ensure_runtime_schema(): void
 {
     $driver = db()->getAttribute(PDO::ATTR_DRIVER_NAME);
+    $schemaCacheFile = runtime_schema_cache_file($driver);
+    if ($schemaCacheFile && runtime_schema_cache_is_current($schemaCacheFile)) {
+        return;
+    }
+
     ensure_users_email_allows_duplicates($driver);
     if ($driver === 'sqlite') {
         $columns = array_column(db()->query('PRAGMA table_info(children)')->fetchAll(), 'name');
@@ -473,6 +480,34 @@ function ensure_runtime_schema(): void
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
         ensure_special_record_types();
+        runtime_schema_cache_mark_current($schemaCacheFile);
+    }
+}
+
+function runtime_schema_cache_file(string $driver): ?string
+{
+    if ($driver !== 'mysql') {
+        return null;
+    }
+
+    $dir = dirname(__DIR__) . '/var';
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return null;
+    }
+
+    $dsnHash = substr(hash('sha256', (string)cfg('db.dsn', '')), 0, 16);
+    return $dir . '/runtime-schema-' . $driver . '-' . $dsnHash . '.version';
+}
+
+function runtime_schema_cache_is_current(?string $path): bool
+{
+    return $path !== null && is_file($path) && trim((string)@file_get_contents($path)) === RUNTIME_SCHEMA_VERSION;
+}
+
+function runtime_schema_cache_mark_current(?string $path): void
+{
+    if ($path !== null) {
+        @file_put_contents($path, RUNTIME_SCHEMA_VERSION . "\n", LOCK_EX);
     }
 }
 
@@ -625,6 +660,7 @@ function delete_user_account(int $userId): void
              WHERE id = ?'
         )->execute([$deletedEmail, 'Smazaný účet', $now, $userId]);
         db()->commit();
+        forget_user_request_cache($userId);
     } catch (Throwable $e) {
         db()->rollBack();
         throw $e;
@@ -777,6 +813,14 @@ function consume_password_reset_token(string $token, string $password): bool
 
 function current_family(int $userId): ?array
 {
+    global $requestFamilyCache;
+    if (!is_array($requestFamilyCache ?? null)) {
+        $requestFamilyCache = [];
+    }
+    if (isset($requestFamilyCache[$userId])) {
+        return $requestFamilyCache[$userId];
+    }
+
     $stmt = db()->prepare(
         'SELECT f.*, fm.role
          FROM families f
@@ -789,8 +833,20 @@ function current_family(int $userId): ?array
     $family = $stmt->fetch() ?: null;
     if ($family) {
         ensure_default_medications((int)$family['id']);
+        $requestFamilyCache[$userId] = $family;
     }
     return $family;
+}
+
+function forget_user_request_cache(int $userId): void
+{
+    global $requestFamilyCache, $requestChildrenCache;
+    if (is_array($requestFamilyCache ?? null)) {
+        unset($requestFamilyCache[$userId]);
+    }
+    if (is_array($requestChildrenCache ?? null)) {
+        unset($requestChildrenCache[$userId]);
+    }
 }
 
 function pending_invitations_for_email(string $email): array
@@ -937,6 +993,7 @@ function add_user_to_family(int $familyId, int $userId, bool $grantChildAccess =
         db()->prepare('UPDATE family_invitations SET accepted_at = ? WHERE family_id = ? AND invited_email = (SELECT email FROM users WHERE id = ?)')
             ->execute([now_sql(), $familyId, $userId]);
         db()->commit();
+        forget_user_request_cache($userId);
     } catch (Throwable $e) {
         db()->rollBack();
         throw $e;
@@ -1132,6 +1189,14 @@ function set_child_access_users(int $familyId, int $childId, array $userIds): vo
 
 function children_for_user(int $userId): array
 {
+    global $requestChildrenCache;
+    if (!is_array($requestChildrenCache ?? null)) {
+        $requestChildrenCache = [];
+    }
+    if (array_key_exists($userId, $requestChildrenCache)) {
+        return $requestChildrenCache[$userId];
+    }
+
     $stmt = db()->prepare(
         'SELECT c.*
          FROM children c
@@ -1139,7 +1204,9 @@ function children_for_user(int $userId): array
          ORDER BY c.first_name, c.last_name'
     );
     $stmt->execute([$userId]);
-    return $stmt->fetchAll();
+    $children = $stmt->fetchAll();
+    $requestChildrenCache[$userId] = $children;
+    return $children;
 }
 
 function child_for_user(int $childId, int $userId): ?array
@@ -1514,6 +1581,31 @@ function latest_child_document_by_type(int $childId, string $documentType): ?arr
     return $stmt->fetch() ?: null;
 }
 
+function latest_child_documents_by_type(array $childIds, string $documentType): array
+{
+    $childIds = array_values(array_unique(array_map('intval', $childIds)));
+    if (!$childIds) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($childIds), '?'));
+    $stmt = db()->prepare(
+        'SELECT cd.*
+         FROM child_documents cd
+         WHERE cd.child_id IN (' . $placeholders . ') AND cd.document_type = ?
+         ORDER BY cd.child_id, cd.created_at DESC, cd.id DESC'
+    );
+    $stmt->execute(array_merge($childIds, [$documentType]));
+    $documents = [];
+    foreach ($stmt->fetchAll() as $document) {
+        $childId = (int)$document['child_id'];
+        if (!isset($documents[$childId])) {
+            $documents[$childId] = $document;
+        }
+    }
+    return $documents;
+}
+
 function child_documents_between(int $childId, string $from, string $to, bool $includeSensitive = false): array
 {
     $specialtiesSql = provider_specialties_sql();
@@ -1784,6 +1876,70 @@ function child_summary(int $childId): array
     ];
 }
 
+function child_summaries(array $childIds): array
+{
+    $childIds = array_values(array_unique(array_map('intval', $childIds)));
+    $summaries = [];
+    foreach ($childIds as $childId) {
+        $summaries[$childId] = [
+            'last_temperature' => null,
+            'max_24h' => null,
+            'last_medication' => null,
+        ];
+    }
+    if (!$childIds) {
+        return $summaries;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($childIds), '?'));
+    $since24h = (new DateTimeImmutable('-24 hours'))->format('Y-m-d H:i:s');
+
+    $lastTemp = db()->prepare(
+        'SELECT hr.child_id, tr.temperature_celsius, hr.event_at
+         FROM health_records hr
+         JOIN temperature_records tr ON tr.health_record_id = hr.id
+         WHERE hr.child_id IN (' . $placeholders . ')
+         ORDER BY hr.child_id, hr.event_at DESC, hr.id DESC'
+    );
+    $lastTemp->execute($childIds);
+    foreach ($lastTemp->fetchAll() as $row) {
+        $childId = (int)$row['child_id'];
+        if ($summaries[$childId]['last_temperature'] === null) {
+            $summaries[$childId]['last_temperature'] = $row;
+        }
+    }
+
+    $maxTemp = db()->prepare(
+        'SELECT hr.child_id, MAX(tr.temperature_celsius) AS value
+         FROM health_records hr
+         JOIN temperature_records tr ON tr.health_record_id = hr.id
+         WHERE hr.child_id IN (' . $placeholders . ') AND hr.event_at >= ?
+         GROUP BY hr.child_id'
+    );
+    $maxTemp->execute(array_merge($childIds, [$since24h]));
+    foreach ($maxTemp->fetchAll() as $row) {
+        $summaries[(int)$row['child_id']]['max_24h'] = $row['value'];
+    }
+
+    $lastMed = db()->prepare(
+        'SELECT hr.child_id, m.name, m.dosage_form, m.strength, hr.event_at
+         FROM health_records hr
+         JOIN medication_administrations ma ON ma.health_record_id = hr.id
+         JOIN medications m ON m.id = ma.medication_id
+         WHERE hr.child_id IN (' . $placeholders . ')
+         ORDER BY hr.child_id, hr.event_at DESC, hr.id DESC'
+    );
+    $lastMed->execute($childIds);
+    foreach ($lastMed->fetchAll() as $row) {
+        $childId = (int)$row['child_id'];
+        if ($summaries[$childId]['last_medication'] === null) {
+            $summaries[$childId]['last_medication'] = $row;
+        }
+    }
+
+    return $summaries;
+}
+
 function medications(int $familyId, bool $activeOnly = false): array
 {
     $sql = 'SELECT * FROM medications WHERE family_id = ?';
@@ -1870,6 +2026,73 @@ function timeline_data(int $childId, int $hours): array
     $meds->execute([$childId, $from]);
 
     return ['from' => $from, 'to' => date('Y-m-d H:i:s'), 'temperatures' => $temps->fetchAll(), 'medications' => $meds->fetchAll()];
+}
+
+function timeline_data_for_children(array $childIds, int $hours): array
+{
+    $childIds = array_values(array_unique(array_map('intval', $childIds)));
+    $from = (new DateTimeImmutable("-{$hours} hours"))->format('Y-m-d H:i:s');
+    $to = date('Y-m-d H:i:s');
+    $items = [];
+    foreach ($childIds as $childId) {
+        $items[$childId] = ['from' => $from, 'to' => $to, 'temperatures' => [], 'medications' => []];
+    }
+    if (!$childIds) {
+        return $items;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($childIds), '?'));
+    $temps = db()->prepare(
+        'SELECT hr.child_id, hr.id, hr.event_at, tr.temperature_celsius, hr.place, hr.note
+         FROM health_records hr
+         JOIN temperature_records tr ON tr.health_record_id = hr.id
+         WHERE hr.child_id IN (' . $placeholders . ') AND hr.event_at >= ?
+         ORDER BY hr.child_id, hr.event_at'
+    );
+    $temps->execute(array_merge($childIds, [$from]));
+    foreach ($temps->fetchAll() as $row) {
+        $items[(int)$row['child_id']]['temperatures'][] = $row;
+    }
+
+    $meds = db()->prepare(
+        'SELECT hr.child_id, hr.id, hr.event_at, m.name, m.dosage_form, m.strength
+         FROM health_records hr
+         JOIN medication_administrations ma ON ma.health_record_id = hr.id
+         JOIN medications m ON m.id = ma.medication_id
+         WHERE hr.child_id IN (' . $placeholders . ') AND hr.event_at >= ?
+         ORDER BY hr.child_id, hr.event_at'
+    );
+    $meds->execute(array_merge($childIds, [$from]));
+    foreach ($meds->fetchAll() as $row) {
+        $items[(int)$row['child_id']]['medications'][] = $row;
+    }
+
+    return $items;
+}
+
+function dashboard_overview(int $userId, int $hours = 72): array
+{
+    $children = children_for_user($userId);
+    if (!$children) {
+        return [];
+    }
+
+    $childIds = array_map(fn(array $child): int => (int)$child['id'], $children);
+    $summaries = child_summaries($childIds);
+    $timelines = timeline_data_for_children($childIds, $hours);
+    $ehics = latest_child_documents_by_type($childIds, 'ehic');
+    $overview = [];
+    foreach ($children as $child) {
+        $childId = (int)$child['id'];
+        $overview[] = [
+            'child' => $child,
+            'summary' => $summaries[$childId] ?? ['last_temperature' => null, 'max_24h' => null, 'last_medication' => null],
+            'timeline' => $timelines[$childId] ?? ['from' => date('Y-m-d H:i:s'), 'to' => date('Y-m-d H:i:s'), 'temperatures' => [], 'medications' => []],
+            'ehic' => $ehics[$childId] ?? null,
+        ];
+    }
+
+    return $overview;
 }
 
 function child_records(int $childId, int $limit = 500): array
