@@ -530,11 +530,27 @@ textarea {
     color: var(--muted);
 }
 
+.ehic-menu-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .45rem;
+}
+
 .ehic-menu-panel form {
     display: grid;
     gap: .45rem;
     padding-top: .45rem;
     border-top: 1px solid var(--line);
+}
+
+.ehic-menu-panel .ehic-delete-form {
+    display: block;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.ehic-menu-actions .button {
+    width: 100%;
 }
 
 .ehic-menu-panel input[type="file"] {

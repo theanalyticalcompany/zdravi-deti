@@ -665,15 +665,23 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
         <summary aria-label="EHIC">
             <span class="ehic-card-icon" aria-hidden="true"><span></span></span>
         </summary>
-        <button class="ehic-menu-backdrop" type="button" data-ehic-close aria-label="Zavřít menu EHIC"></button>
+        <button class="ehic-menu-backdrop" type="button" data-ehic-close onclick="this.closest('.ehic-menu').removeAttribute('open')" aria-label="Zavřít menu EHIC"></button>
         <div class="ehic-menu-panel">
             <div class="ehic-menu-head">
                 <strong>EHIC</strong>
-                <button class="button tiny subtle" type="button" data-ehic-close>Zavřít</button>
+                <button class="button tiny subtle" type="button" data-ehic-close onclick="this.closest('.ehic-menu').removeAttribute('open')">Zavřít</button>
             </div>
             <small><?= e(display_datetime($ehic['created_at'])) ?> · <?= e(file_size_label((int)$ehic['size_bytes'])) ?></small>
-            <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>">Zobrazit</a>
-            <a class="button tiny" href="<?= e(url('document_download', ['id' => $ehic['id']])) ?>">Stáhnout</a>
+            <div class="ehic-menu-actions">
+                <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>">Zobrazit</a>
+                <a class="button tiny" href="<?= e(url('document_download', ['id' => $ehic['id']])) ?>">Stáhnout</a>
+                <form method="post" action="<?= e(url('document_delete')) ?>" class="ehic-delete-form" data-confirm="Smazat EHIC?">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="document_id" value="<?= e($ehic['id']) ?>">
+                    <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
+                    <button class="button tiny danger" type="submit">Smazat</button>
+                </form>
+            </div>
             <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
                 <?= csrf_field() ?>
                 <input type="hidden" name="child_id" value="<?= e($childId) ?>">
@@ -683,12 +691,6 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
                 <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
                 <label>Nahrát nový <input required type="file" name="document_file" accept="image/*,.pdf"></label>
                 <button class="button tiny" type="submit">Nahrát</button>
-            </form>
-            <form method="post" action="<?= e(url('document_delete')) ?>" data-confirm="Smazat EHIC?">
-                <?= csrf_field() ?>
-                <input type="hidden" name="document_id" value="<?= e($ehic['id']) ?>">
-                <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
-                <button class="button tiny danger" type="submit">Smazat</button>
             </form>
         </div>
     </details>
