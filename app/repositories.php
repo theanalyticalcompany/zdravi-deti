@@ -162,6 +162,8 @@ function ensure_runtime_schema(): void
                 original_filename TEXT NOT NULL,
                 storage_path TEXT NOT NULL,
                 mime_type TEXT NULL,
+                storage_mode TEXT NOT NULL DEFAULT \'plain\',
+                encryption_algo TEXT NULL,
                 size_bytes INTEGER NOT NULL DEFAULT 0,
                 uploaded_by_user_id INTEGER NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -176,6 +178,8 @@ function ensure_runtime_schema(): void
         foreach ([
             'document_type' => "TEXT NOT NULL DEFAULT 'general'",
             'is_sensitive' => 'INTEGER NOT NULL DEFAULT 0',
+            'storage_mode' => "TEXT NOT NULL DEFAULT 'plain'",
+            'encryption_algo' => 'TEXT NULL',
         ] as $column => $definition) {
             if (!in_array($column, $documentColumns, true)) {
                 db()->exec("ALTER TABLE child_documents ADD COLUMN {$column} {$definition}");
@@ -395,6 +399,8 @@ function ensure_runtime_schema(): void
                 original_filename VARCHAR(255) NOT NULL,
                 storage_path VARCHAR(500) NOT NULL,
                 mime_type VARCHAR(160) NULL,
+                storage_mode VARCHAR(20) NOT NULL DEFAULT \'plain\',
+                encryption_algo VARCHAR(80) NULL,
                 size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
                 uploaded_by_user_id INT UNSIGNED NOT NULL,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -408,6 +414,8 @@ function ensure_runtime_schema(): void
         foreach ([
             'document_type' => "VARCHAR(40) NOT NULL DEFAULT 'general' AFTER note",
             'is_sensitive' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER document_type',
+            'storage_mode' => "VARCHAR(20) NOT NULL DEFAULT 'plain' AFTER mime_type",
+            'encryption_algo' => 'VARCHAR(80) NULL AFTER storage_mode',
         ] as $column => $definition) {
             $stmt = db()->query("SHOW COLUMNS FROM child_documents LIKE '{$column}'");
             if (!$stmt->fetch()) {
@@ -1511,15 +1519,16 @@ function child_documents_between(int $childId, string $from, string $to, bool $i
     return $stmt->fetchAll();
 }
 
-function create_child_document(int $childId, int $userId, string $title, string $note, ?int $providerId, string $originalFilename, string $storagePath, ?string $mimeType, int $sizeBytes, string $documentType = 'general', bool $isSensitive = false): int
+function create_child_document(int $childId, int $userId, string $title, string $note, ?int $providerId, string $originalFilename, string $storagePath, ?string $mimeType, int $sizeBytes, string $documentType = 'general', bool $isSensitive = false, string $storageMode = 'plain', ?string $encryptionAlgo = null): int
 {
     if ($providerId !== null && !healthcare_provider_by_id($providerId)) {
         throw new InvalidArgumentException('Vybraný lékař nebyl nalezen.');
     }
+    $storageMode = in_array($storageMode, ['plain', 'encrypted'], true) ? $storageMode : 'plain';
     db()->prepare(
-        'INSERT INTO child_documents (child_id, provider_id, title, note, document_type, is_sensitive, original_filename, storage_path, mime_type, size_bytes, uploaded_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute([$childId, $providerId, $title, $note !== '' ? $note : null, $documentType, $isSensitive ? 1 : 0, $originalFilename, $storagePath, $mimeType, $sizeBytes, $userId]);
+        'INSERT INTO child_documents (child_id, provider_id, title, note, document_type, is_sensitive, original_filename, storage_path, mime_type, storage_mode, encryption_algo, size_bytes, uploaded_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([$childId, $providerId, $title, $note !== '' ? $note : null, $documentType, $isSensitive ? 1 : 0, $originalFilename, $storagePath, $mimeType, $storageMode, $encryptionAlgo, $sizeBytes, $userId]);
     return (int)db()->lastInsertId();
 }
 

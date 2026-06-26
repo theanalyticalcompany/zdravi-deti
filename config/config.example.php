@@ -17,6 +17,10 @@ return [
         'client_secret' => '',
         'redirect_uri' => 'https://example.cz/?r=google_callback',
     ],
+    'documents' => [
+        'encrypt_uploads' => false,
+        'encryption_key' => '', // base64:32-byte-key, keep only in config/config.php
+    ],
     'mail' => [
         'enabled' => false,
         'transport' => 'mail', // log/mail/smtp/api

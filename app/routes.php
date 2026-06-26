@@ -902,6 +902,7 @@ function page_child(): void
     $records = child_records((int)$child['id']);
     $medications = medications((int)$family['id'], true);
     $careTypes = record_types((int)$family['id'], 'CARE');
+    encrypt_plain_documents_for_child((int)$child['id']);
     $documents = child_documents((int)$child['id']);
     $appointments = child_appointments((int)$child['id']);
     $childDoctors = child_doctors((int)$child['id']);
@@ -973,6 +974,7 @@ function page_child(): void
                                     <small>
                                         <?= e(document_type_label($document['document_type'] ?? 'general')) ?> ·
                                         <?= e($document['original_filename']) ?> · <?= e(file_size_label((int)$document['size_bytes'])) ?> · <?= e(display_datetime($document['created_at'])) ?>
+                                        <?php if (($document['storage_mode'] ?? 'plain') === 'encrypted'): ?><span class="badge">Šifrováno</span><?php endif; ?>
                                         <?php if (!empty($document['is_sensitive'])): ?><span class="badge warning">Citlivé</span><?php endif; ?>
                                     </small>
                                     <?php if (!empty($document['provider_name'])): ?>
@@ -1072,6 +1074,7 @@ function page_child(): void
                         <?= e(document_type_label($latestEhic['document_type'] ?? 'ehic')) ?> ·
                         <?= e(display_datetime($latestEhic['created_at'])) ?> ·
                         <?= e(file_size_label((int)$latestEhic['size_bytes'])) ?>
+                        <?php if (($latestEhic['storage_mode'] ?? 'plain') === 'encrypted'): ?> · šifrováno<?php endif; ?>
                     </p>
                 <?php else: ?>
                     <p class="muted">Evropský průkaz zdravotního pojištění zatím není uložený.</p>
@@ -1448,11 +1451,12 @@ function action_document_upload(): void
         if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
             throw new RuntimeException('Cílovou složku dokumentů se nepodařilo připravit.');
         }
-        if (!move_uploaded_file((string)$file['tmp_name'], document_storage_path($storagePath))) {
+        [$storageMode, $encryptionAlgo] = store_uploaded_document((string)$file['tmp_name'], document_storage_path($storagePath));
+        if ($storageMode === '') {
             throw new RuntimeException('Soubor se nepodařilo uložit.');
         }
 
-        $documentId = create_child_document((int)$child['id'], (int)$user['id'], $title, $note, $providerId, $originalName, $storagePath, $mimeType, $sizeBytes, $documentType, $isSensitive);
+        $documentId = create_child_document((int)$child['id'], (int)$user['id'], $title, $note, $providerId, $originalName, $storagePath, $mimeType, $sizeBytes, $documentType, $isSensitive, $storageMode, $encryptionAlgo);
         audit_log('child.document_uploaded', (int)$user['id'], (int)$family['id'], 'child_document', $documentId, ['child_id' => (int)$child['id'], 'provider_id' => $providerId, 'document_type' => $documentType]);
         flash('success', 'Dokument byl uložen.');
     } catch (Throwable $e) {
@@ -1476,6 +1480,7 @@ function action_document_view(): void
         echo 'Soubor nebyl nalezen.';
         return;
     }
+    encrypt_document_file_at_rest_if_needed($document);
 
     if (!empty($document['is_sensitive'])) {
         audit_log('child.document_viewed_sensitive', (int)$user['id'], (int)$document['family_id'], 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
@@ -1497,6 +1502,7 @@ function action_document_download(): void
         echo 'Soubor nebyl nalezen.';
         return;
     }
+    encrypt_document_file_at_rest_if_needed($document);
 
     send_document_file($document, $path, 'attachment');
 }
@@ -1516,10 +1522,15 @@ function send_document_file(array $document, string $path, string $disposition):
             'txt' => 'text/plain; charset=utf-8',
         ][$extension] ?? 'application/octet-stream';
     }
+    $contents = file_get_contents($path);
+    if ($contents === false) {
+        throw new RuntimeException('Soubor se nepodařilo načíst.');
+    }
+    $contents = document_decrypt_bytes($contents);
     header('Content-Type: ' . $mimeType);
-    header('Content-Length: ' . filesize($path));
+    header('Content-Length: ' . strlen($contents));
     header('Content-Disposition: ' . $disposition . '; filename="' . addcslashes((string)$document['original_filename'], "\\\"") . '"');
-    readfile($path);
+    echo $contents;
     exit;
 }
 
@@ -1601,6 +1612,61 @@ function document_storage_path(string $storagePath): string
 {
     $normalized = str_replace(['\\', '..'], ['/', ''], $storagePath);
     return document_upload_root() . '/' . ltrim($normalized, '/');
+}
+
+function store_uploaded_document(string $tmpPath, string $targetPath): array
+{
+    if (document_encrypt_uploads()) {
+        $contents = file_get_contents($tmpPath);
+        if ($contents === false) {
+            return ['', null];
+        }
+        $encrypted = document_encrypt_bytes($contents);
+        if (file_put_contents($targetPath, $encrypted, LOCK_EX) === false) {
+            return ['', null];
+        }
+        return ['encrypted', 'AES-256-GCM'];
+    }
+    if (!move_uploaded_file($tmpPath, $targetPath)) {
+        return ['', null];
+    }
+    return ['plain', null];
+}
+
+function encrypt_plain_documents_for_child(int $childId): void
+{
+    if (!document_encrypt_uploads()) {
+        return;
+    }
+    $stmt = db()->prepare("SELECT * FROM child_documents WHERE child_id = ? AND (storage_mode IS NULL OR storage_mode <> 'encrypted')");
+    $stmt->execute([$childId]);
+    foreach ($stmt->fetchAll() as $document) {
+        encrypt_document_file_at_rest_if_needed($document);
+    }
+}
+
+function encrypt_document_file_at_rest_if_needed(array $document): void
+{
+    if (!document_encrypt_uploads() || ($document['storage_mode'] ?? 'plain') === 'encrypted') {
+        return;
+    }
+    $path = document_storage_path((string)$document['storage_path']);
+    if (!is_file($path)) {
+        return;
+    }
+    $contents = file_get_contents($path);
+    if ($contents === false) {
+        return;
+    }
+    if (document_bytes_are_encrypted($contents)) {
+        db()->prepare("UPDATE child_documents SET storage_mode = 'encrypted', encryption_algo = 'AES-256-GCM' WHERE id = ?")->execute([(int)$document['id']]);
+        return;
+    }
+    $encrypted = document_encrypt_bytes($contents);
+    if (file_put_contents($path, $encrypted, LOCK_EX) === false) {
+        throw new RuntimeException('Dokument se nepodařilo uložit v šifrované podobě.');
+    }
+    db()->prepare("UPDATE child_documents SET storage_mode = 'encrypted', encryption_algo = 'AES-256-GCM' WHERE id = ?")->execute([(int)$document['id']]);
 }
 
 function symptom_detail_label(string $symptoms, ?string $severity): string

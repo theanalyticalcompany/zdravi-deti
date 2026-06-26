@@ -26,6 +26,10 @@ $config = [
         'client_secret' => '',
         'redirect_uri' => '',
     ],
+    'documents' => [
+        'encrypt_uploads' => true,
+        'encryption_key' => 'base64:' . base64_encode(str_repeat('d', 32)),
+    ],
 ];
 
 date_default_timezone_set($config['app']['timezone']);
@@ -52,6 +56,11 @@ function assert_true(bool $condition, string $message): void
         exit(1);
     }
 }
+
+$encryptedBytes = document_encrypt_bytes('tajný obsah dokumentu');
+assert_true(document_bytes_are_encrypted($encryptedBytes), 'document bytes are marked as encrypted');
+assert_true(strpos($encryptedBytes, 'tajný obsah dokumentu') === false, 'encrypted document does not contain plaintext');
+assert_true(document_decrypt_bytes($encryptedBytes) === 'tajný obsah dokumentu', 'encrypted document can be decrypted');
 
 $userId = create_user('rodic@example.test', 'Testovací rodič', 'bezpecne-heslo-123');
 $googleUserId = create_user('rodic@example.test', 'Google rodič', null, 'google-subject-1');

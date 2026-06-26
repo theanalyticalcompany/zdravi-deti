@@ -274,6 +274,8 @@ CREATE TABLE child_documents (
     original_filename TEXT NOT NULL,
     storage_path TEXT NOT NULL,
     mime_type TEXT NULL,
+    storage_mode TEXT NOT NULL DEFAULT 'plain',
+    encryption_algo TEXT NULL,
     size_bytes INTEGER NOT NULL DEFAULT 0,
     uploaded_by_user_id INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

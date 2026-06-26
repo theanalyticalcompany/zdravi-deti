@@ -146,6 +146,96 @@ function file_size_label(int $bytes): string
     return $bytes . ' B';
 }
 
+function document_encryption_magic(): string
+{
+    return "ZDENC1\n";
+}
+
+function document_encrypt_uploads(): bool
+{
+    return filter_var(cfg('documents.encrypt_uploads', false), FILTER_VALIDATE_BOOLEAN);
+}
+
+function document_encryption_key(): ?string
+{
+    $configured = trim((string)cfg('documents.encryption_key', ''));
+    if ($configured === '') {
+        return null;
+    }
+    if (strpos($configured, 'base64:') === 0) {
+        $key = base64_decode(substr($configured, 7), true);
+    } else {
+        $key = $configured;
+    }
+    if (!is_string($key) || strlen($key) !== 32) {
+        throw new RuntimeException('Šifrovací klíč dokumentů musí mít 32 bajtů.');
+    }
+    return $key;
+}
+
+function document_bytes_are_encrypted(string $bytes): bool
+{
+    return strpos($bytes, document_encryption_magic()) === 0;
+}
+
+function document_encrypt_bytes(string $plaintext): string
+{
+    if (!function_exists('openssl_encrypt')) {
+        throw new RuntimeException('Na serveru není dostupné OpenSSL pro šifrování dokumentů.');
+    }
+    $key = document_encryption_key();
+    if ($key === null) {
+        throw new RuntimeException('Chybí šifrovací klíč dokumentů.');
+    }
+    $iv = random_bytes(12);
+    $tag = '';
+    $ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+    if ($ciphertext === false || $tag === '') {
+        throw new RuntimeException('Dokument se nepodařilo zašifrovat.');
+    }
+    $header = [
+        'alg' => 'AES-256-GCM',
+        'iv' => base64_encode($iv),
+        'tag' => base64_encode($tag),
+    ];
+    return document_encryption_magic() . base64_encode(json_encode($header, JSON_UNESCAPED_SLASHES)) . "\n" . $ciphertext;
+}
+
+function document_decrypt_bytes(string $bytes): string
+{
+    if (!document_bytes_are_encrypted($bytes)) {
+        return $bytes;
+    }
+    if (!function_exists('openssl_decrypt')) {
+        throw new RuntimeException('Na serveru není dostupné OpenSSL pro čtení šifrovaných dokumentů.');
+    }
+    $key = document_encryption_key();
+    if ($key === null) {
+        throw new RuntimeException('Chybí šifrovací klíč dokumentů.');
+    }
+    $payload = substr($bytes, strlen(document_encryption_magic()));
+    $newlinePosition = strpos($payload, "\n");
+    if ($newlinePosition === false) {
+        throw new RuntimeException('Šifrovaný dokument má neplatný formát.');
+    }
+    $headerJson = base64_decode(substr($payload, 0, $newlinePosition), true);
+    $header = is_string($headerJson) ? json_decode($headerJson, true) : null;
+    if (!is_array($header) || ($header['alg'] ?? '') !== 'AES-256-GCM') {
+        throw new RuntimeException('Šifrovaný dokument má neplatnou hlavičku.');
+    }
+    $iv = base64_decode((string)($header['iv'] ?? ''), true);
+    $tag = base64_decode((string)($header['tag'] ?? ''), true);
+    if (!is_string($iv) || strlen($iv) !== 12 || !is_string($tag) || strlen($tag) !== 16) {
+        throw new RuntimeException('Šifrovaný dokument má neplatné parametry.');
+    }
+    $ciphertext = substr($payload, $newlinePosition + 1);
+    $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+    if ($plaintext === false) {
+        throw new RuntimeException('Dokument se nepodařilo dešifrovat.');
+    }
+    return $plaintext;
+}
+
 function document_type_options(): array
 {
     return [
