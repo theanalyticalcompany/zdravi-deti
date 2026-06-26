@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zdravi-deti-static-v18';
+const CACHE_NAME = 'zdravi-deti-static-v19';
 const STATIC_ASSETS = [
     '/offline.html',
     '/assets/app.css',

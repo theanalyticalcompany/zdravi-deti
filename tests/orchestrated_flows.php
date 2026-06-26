@@ -213,6 +213,7 @@ try {
     file_put_contents($pngPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lS9Q1wAAAABJRU5ErkJggg=='));
     $documentsPage = $owner->get('/?r=child&id=' . $childOne . '&documents=1');
     assert_all_controls($documentsPage->body, ['Uložit EHIC', 'Uložit dokument', 'Zavřít'], 'document dialog controls');
+    assert_not_contains($documentsPage->body, 'Vybrat lékaře', 'child documentation no longer contains provider search');
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),
         'child_id' => (string)$childOne,

@@ -953,13 +953,8 @@ function page_child(): void
     $appointments = child_appointments((int)$child['id']);
     $appointmentDocuments = appointment_documents_for_appointments(array_map(fn(array $appointment): int => (int)$appointment['id'], $appointments));
     $childDoctors = child_doctors((int)$child['id']);
-    $documentFields = $openDocuments ? healthcare_provider_fields() : [];
-    $documentProviderQuery = trim((string)($_GET['document_provider_q'] ?? ''));
-    $documentProviderCareField = trim((string)($_GET['document_provider_care_field'] ?? ''));
-    $documentProviderCity = trim((string)($_GET['document_provider_city'] ?? ''));
-    $documentProviderResults = $openDocuments ? search_healthcare_providers($documentProviderQuery, $documentProviderCareField, $documentProviderCity, 50) : [];
 
-    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $appointmentDocuments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments, $documentUploaded) {
+    render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $appointmentDocuments, $childDoctors, $openDocuments, $openAppointments, $documentUploaded) {
         $last = $summary['last_temperature'];
         ?>
         <div class="page-head">
@@ -981,7 +976,7 @@ function page_child(): void
 
         <?php
         $documentProviderOptions = [];
-        foreach (array_merge($childDoctors, $documentProviderResults, $appointments) as $provider) {
+        foreach (array_merge($childDoctors, $appointments) as $provider) {
             $providerId = (int)($provider['provider_id'] ?? $provider['id'] ?? 0);
             if ($providerId <= 0 || isset($documentProviderOptions[$providerId])) {
                 continue;
@@ -1039,28 +1034,6 @@ function page_child(): void
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>
-            </section>
-
-            <section class="subsection document-section">
-                <h3>Vybrat lékaře z NRPZS</h3>
-                <form method="get" class="provider-search compact-search">
-                    <input type="hidden" name="r" value="child">
-                    <input type="hidden" name="id" value="<?= e($child['id']) ?>">
-                    <input type="hidden" name="documents" value="1">
-                    <label>Obor
-                        <select name="document_provider_care_field">
-                            <option value="">Všechny obory</option>
-                            <?php foreach ($documentFields as $field): ?>
-                                <option value="<?= e($field['care_field']) ?>" <?= $field['care_field'] === $documentProviderCareField ? 'selected' : '' ?>>
-                                    <?= e($field['care_field']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <label>Město <input name="document_provider_city" value="<?= e($documentProviderCity) ?>" placeholder="např. Praha"></label>
-                    <label>Hledat <input name="document_provider_q" value="<?= e($documentProviderQuery) ?>" placeholder="jméno, zařízení, ulice"></label>
-                    <button class="button" type="submit">Hledat</button>
-                </form>
             </section>
 
             <section class="subsection document-section">

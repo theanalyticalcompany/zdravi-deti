@@ -24,7 +24,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="stylesheet" href="assets/app.css?v=18">
+    <link rel="stylesheet" href="assets/app.css?v=19">
 </head>
 <body>
 <header class="topbar">
@@ -52,7 +52,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endforeach; ?>
     <?php $content(); ?>
 </main>
-<script src="assets/app.js?v=18"></script>
+<script src="assets/app.js?v=19"></script>
 </body>
 </html><?php
 }

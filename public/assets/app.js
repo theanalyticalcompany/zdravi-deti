@@ -130,9 +130,16 @@ document.querySelectorAll('select[name="medication_id"]').forEach((select) => {
             .split(/\.\s+/)
             .map((item) => item.trim().replace(/\.$/, ''))
             .filter(Boolean);
+        const substance = items.shift() || '';
+        const dosing = items.shift() || '';
+        const details = items;
+        const structured = [
+            substance ? `<dt>Účinná látka</dt><dd>${escapeHtml(substance)}</dd>` : '',
+            dosing ? `<dt>Dávkování</dt><dd>${escapeHtml(dosing)}</dd>` : ''
+        ].join('');
         info.innerHTML = [
-            '<strong>Informace k dávkování</strong>',
-            '<ul>' + items.map((item) => `<li>${escapeHtml(item)}</li>`).join('') + '</ul>',
+            structured ? `<dl>${structured}</dl>` : '',
+            details.length ? '<ul>' + details.map((item) => `<li>${escapeHtml(item)}</li>`).join('') + '</ul>' : '',
             source ? `<a href="${escapeAttribute(source)}" target="_blank" rel="noopener">Ověřit příbalovou informaci na SÚKL</a>` : ''
         ].join('');
     };
