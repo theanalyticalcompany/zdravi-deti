@@ -41,6 +41,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endif; ?>
 </header>
 <main class="shell">
+    <div class="pull-refresh-indicator" aria-hidden="true">Uvolněte pro aktualizaci</div>
     <?php foreach (flashes() as $flash): ?>
         <div class="flash <?= e($flash['type']) ?>"><?= e($flash['message']) ?></div>
     <?php endforeach; ?>

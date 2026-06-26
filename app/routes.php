@@ -665,8 +665,12 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
         <summary aria-label="EHIC">
             <span class="ehic-card-icon" aria-hidden="true"><span></span></span>
         </summary>
+        <button class="ehic-menu-backdrop" type="button" data-ehic-close aria-label="Zavřít menu EHIC"></button>
         <div class="ehic-menu-panel">
-            <strong>EHIC</strong>
+            <div class="ehic-menu-head">
+                <strong>EHIC</strong>
+                <button class="button tiny subtle" type="button" data-ehic-close>Zavřít</button>
+            </div>
             <small><?= e(display_datetime($ehic['created_at'])) ?> · <?= e(file_size_label((int)$ehic['size_bytes'])) ?></small>
             <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>">Zobrazit</a>
             <a class="button tiny" href="<?= e(url('document_download', ['id' => $ehic['id']])) ?>">Stáhnout</a>
