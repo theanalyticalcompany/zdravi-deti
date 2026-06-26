@@ -409,23 +409,6 @@ textarea {
     min-width: 9.5rem;
 }
 
-.ehic-panel {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-.ehic-panel h2 {
-    margin-bottom: .25rem;
-}
-
-.ehic-panel .actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
 .overview-list {
     display: grid;
     gap: 1rem;
@@ -445,6 +428,76 @@ textarea {
 
 .child-overview-head h2 {
     font-size: 1.35rem;
+}
+
+.child-title-row {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+}
+
+.ehic-menu {
+    position: relative;
+}
+
+.ehic-menu summary {
+    list-style: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+}
+
+.ehic-menu summary::-webkit-details-marker {
+    display: none;
+}
+
+.ehic-card-icon {
+    width: 28px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border: 1px solid #8ea4b8;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #e8eef4, #d4e0ea);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
+}
+
+.ehic-card-icon span {
+    width: 10px;
+    height: 7px;
+    border-radius: 2px;
+    background: #7f98ad;
+}
+
+.ehic-menu-panel {
+    position: absolute;
+    z-index: 8;
+    top: calc(100% + .45rem);
+    left: 0;
+    width: min(260px, calc(100vw - 2rem));
+    display: grid;
+    gap: .5rem;
+    padding: .75rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.ehic-menu-panel small {
+    color: var(--muted);
+}
+
+.ehic-menu-panel form {
+    display: grid;
+    gap: .45rem;
+    padding-top: .45rem;
+    border-top: 1px solid var(--line);
+}
+
+.ehic-menu-panel input[type="file"] {
+    max-width: 100%;
 }
 
 .stat-strip {
@@ -947,8 +1000,7 @@ th {
     .topbar,
     .page-head,
     .section-head,
-    .export-head,
-    .ehic-panel {
+    .export-head {
         align-items: flex-start;
         flex-direction: column;
     }
@@ -975,6 +1027,11 @@ th {
 
     .child-overview-head {
         flex-direction: column;
+    }
+
+    .ehic-menu-panel {
+        left: auto;
+        right: 0;
     }
 
     .wide-field {

@@ -566,6 +566,7 @@ function page_dashboard(): void
             'child' => $child,
             'summary' => child_summary((int)$child['id']),
             'timeline' => timeline_data((int)$child['id'], 72),
+            'ehic' => latest_child_document_by_type((int)$child['id'], 'ehic'),
         ];
     }
 
@@ -594,11 +595,17 @@ function page_dashboard(): void
                     $last = $summary['last_temperature'];
                     $max24 = $summary['max_24h'];
                     $lastMedication = $summary['last_medication'];
+                    $ehic = $item['ehic'];
                     ?>
                     <section class="panel child-overview">
                         <div class="child-overview-head">
                             <div>
-                                <h2><?= e($child['first_name'] . ' ' . $child['last_name']) ?></h2>
+                                <div class="child-title-row">
+                                    <h2><?= e($child['first_name'] . ' ' . $child['last_name']) ?></h2>
+                                    <?php if ($ehic): ?>
+                                        <?php render_ehic_menu((int)$child['id'], $ehic, 'dashboard'); ?>
+                                    <?php endif; ?>
+                                </div>
                                 <p class="muted">
                                     Narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>,
                                     věk <?= e(child_age_label($child['date_of_birth'])) ?>
@@ -649,6 +656,39 @@ function page_dashboard(): void
         <?php endif; ?>
         <?php
     }, 'dashboard');
+}
+
+function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
+{
+    ?>
+    <details class="ehic-menu">
+        <summary aria-label="EHIC">
+            <span class="ehic-card-icon" aria-hidden="true"><span></span></span>
+        </summary>
+        <div class="ehic-menu-panel">
+            <strong>EHIC</strong>
+            <small><?= e(display_datetime($ehic['created_at'])) ?> · <?= e(file_size_label((int)$ehic['size_bytes'])) ?></small>
+            <a class="button tiny primary" href="<?= e(url('document_view', ['id' => $ehic['id']])) ?>" target="_blank" rel="noopener">Zobrazit</a>
+            <a class="button tiny" href="<?= e(url('document_download', ['id' => $ehic['id']])) ?>">Stáhnout</a>
+            <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
+                <?= csrf_field() ?>
+                <input type="hidden" name="child_id" value="<?= e($childId) ?>">
+                <input type="hidden" name="title" value="EHIC">
+                <input type="hidden" name="document_type" value="ehic">
+                <input type="hidden" name="is_sensitive" value="1">
+                <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
+                <label>Nahrát nový <input required type="file" name="document_file" accept="image/*,.pdf"></label>
+                <button class="button tiny" type="submit">Nahrát</button>
+            </form>
+            <form method="post" action="<?= e(url('document_delete')) ?>" data-confirm="Smazat EHIC?">
+                <?= csrf_field() ?>
+                <input type="hidden" name="document_id" value="<?= e($ehic['id']) ?>">
+                <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
+                <button class="button tiny danger" type="submit">Smazat</button>
+            </form>
+        </div>
+    </details>
+    <?php
 }
 
 function page_children(): void
@@ -917,8 +957,6 @@ function page_child(): void
 
     render_layout($child['first_name'], function () use ($child, $family, $summary, $timeline, $records, $medications, $careTypes, $range, $documents, $appointments, $childDoctors, $documentFields, $documentProviderQuery, $documentProviderCareField, $documentProviderCity, $documentProviderResults, $openDocuments, $openAppointments, $documentUploaded) {
         $last = $summary['last_temperature'];
-        $ehicDocuments = array_values(array_filter($documents, fn($document) => ($document['document_type'] ?? '') === 'ehic'));
-        $latestEhic = $ehicDocuments[0] ?? null;
         ?>
         <div class="page-head">
             <div>
@@ -1065,29 +1103,6 @@ function page_child(): void
                 </form>
             </section>
         </dialog>
-
-        <section class="panel ehic-panel">
-            <div>
-                <h2>EHIC</h2>
-                <?php if ($latestEhic): ?>
-                    <p class="muted">
-                        <?= e(document_type_label($latestEhic['document_type'] ?? 'ehic')) ?> ·
-                        <?= e(display_datetime($latestEhic['created_at'])) ?> ·
-                        <?= e(file_size_label((int)$latestEhic['size_bytes'])) ?>
-                        <?php if (($latestEhic['storage_mode'] ?? 'plain') === 'encrypted'): ?> · šifrováno<?php endif; ?>
-                    </p>
-                <?php else: ?>
-                    <p class="muted">Evropský průkaz zdravotního pojištění zatím není uložený.</p>
-                <?php endif; ?>
-            </div>
-            <div class="actions">
-                <?php if ($latestEhic): ?>
-                    <a class="button primary" href="<?= e(url('document_view', ['id' => $latestEhic['id']])) ?>" target="_blank" rel="noopener">Zobrazit EHIC</a>
-                    <a class="button" href="<?= e(url('document_download', ['id' => $latestEhic['id']])) ?>">Stáhnout</a>
-                <?php endif; ?>
-                <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" data-dialog-open="documents-dialog"><?= $latestEhic ? 'Nahrát nový EHIC' : 'Nahrát EHIC' ?></a>
-            </div>
-        </section>
 
         <section class="metrics">
             <?php metric_card('Poslední teplota', $last ? number_format((float)$last['temperature_celsius'], 1, ',', ' ') . ' °C' : '-', $last ? display_datetime($last['event_at']) : '', severity($last ? (float)$last['temperature_celsius'] : null)); ?>
@@ -1255,6 +1270,20 @@ function page_child(): void
                 <button class="button primary" type="submit">Uložit teplotu</button>
             </form>
 
+            <form method="post" action="<?= e(url('care_record_save')) ?>" class="panel stack">
+                <?= csrf_field() ?>
+                <h2>Péče</h2>
+                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
+                <label>Typ
+                    <select required name="record_type_id">
+                        <?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>"><?= e($type['name']) ?></option><?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Čas <input required type="datetime-local" name="event_at" value="<?= e(input_datetime()) ?>"></label>
+                <label>Poznámka <textarea name="note" rows="2"></textarea></label>
+                <button class="button primary" type="submit">Uložit péči</button>
+            </form>
+
             <form method="post" action="<?= e(url('medication_record_save')) ?>" class="panel stack">
                 <?= csrf_field() ?>
                 <h2>Podání léku</h2>
@@ -1271,20 +1300,6 @@ function page_child(): void
                 <label>Čas podání <input required type="datetime-local" name="event_at" value="<?= e(input_datetime()) ?>"></label>
                 <label>Poznámka <textarea name="note" rows="2"></textarea></label>
                 <button class="button primary" type="submit">Uložit lék</button>
-            </form>
-
-            <form method="post" action="<?= e(url('care_record_save')) ?>" class="panel stack">
-                <?= csrf_field() ?>
-                <h2>Péče</h2>
-                <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
-                <label>Typ
-                    <select required name="record_type_id">
-                        <?php foreach ($careTypes as $type): ?><option value="<?= e($type['id']) ?>"><?= e($type['name']) ?></option><?php endforeach; ?>
-                    </select>
-                </label>
-                <label>Čas <input required type="datetime-local" name="event_at" value="<?= e(input_datetime()) ?>"></label>
-                <label>Poznámka <textarea name="note" rows="2"></textarea></label>
-                <button class="button primary" type="submit">Uložit péči</button>
             </form>
         </section>
 
@@ -1463,6 +1478,9 @@ function action_document_upload(): void
         flash('error', $e->getMessage());
     }
 
+    if (($_POST['return_to'] ?? '') === 'dashboard') {
+        redirect('dashboard');
+    }
     redirect('child', ['id' => $child['id'], 'documents' => 1, 'document_uploaded' => $documentType === 'ehic' ? 'ehic' : 'document']);
 }
 
@@ -1551,6 +1569,9 @@ function action_document_delete(): void
         }
         audit_log('child.document_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
         flash('success', 'Dokument byl smazán.');
+    }
+    if (($_POST['return_to'] ?? '') === 'dashboard') {
+        redirect('dashboard');
     }
     redirect('child', ['id' => (int)$document['child_id'], 'documents' => 1]);
 }

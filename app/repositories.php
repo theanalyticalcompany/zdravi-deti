@@ -1498,6 +1498,22 @@ function child_documents(int $childId): array
     return $stmt->fetchAll();
 }
 
+function latest_child_document_by_type(int $childId, string $documentType): ?array
+{
+    $specialtiesSql = provider_specialties_sql();
+    $stmt = db()->prepare(
+        'SELECT cd.*, hp.name AS provider_name, hp.facility_type, hp.care_field, hp.city, hp.zip, hp.street, hp.house_number,
+                hp.phone, hp.email, hp.web, ' . $specialtiesSql . '
+         FROM child_documents cd
+         LEFT JOIN healthcare_providers hp ON hp.id = cd.provider_id
+         WHERE cd.child_id = ? AND cd.document_type = ?
+         ORDER BY cd.created_at DESC, cd.id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$childId, $documentType]);
+    return $stmt->fetch() ?: null;
+}
+
 function child_documents_between(int $childId, string $from, string $to, bool $includeSensitive = false): array
 {
     $specialtiesSql = provider_specialties_sql();
