@@ -21,7 +21,7 @@
 
 body {
     margin: 0;
-    font-family: "Book Antiqua", Palatino, "Palatino Linotype", Georgia, serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--bg);
     color: var(--ink);
 }
