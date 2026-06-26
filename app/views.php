@@ -24,7 +24,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="stylesheet" href="assets/app.css?v=16">
+    <link rel="stylesheet" href="assets/app.css?v=17">
 </head>
 <body>
 <header class="topbar">
@@ -33,12 +33,12 @@ function render_layout(string $title, callable $content, string $active = ''): v
         <nav class="nav">
             <a class="<?= $active === 'dashboard' ? 'active' : '' ?>" href="<?= e(url('dashboard')) ?>">Přehled</a>
             <a class="<?= $active === 'family' ? 'active' : '' ?>" href="<?= e(url('family')) ?>">Správa rodiny</a>
-            <?php foreach ($navChildren as $navChild): ?>
-                <a class="<?= $currentRoute === 'child' && $currentChildId === (int)$navChild['id'] ? 'active' : '' ?>" href="<?= e(url('child', ['id' => $navChild['id']])) ?>"><?= e($navChild['first_name']) ?></a>
-            <?php endforeach; ?>
             <a class="<?= $active === 'medications' ? 'active' : '' ?>" href="<?= e(url('medications')) ?>">Léčiva</a>
             <a class="<?= $active === 'care_types' ? 'active' : '' ?>" href="<?= e(url('care_types')) ?>">Typy péče</a>
             <a class="<?= $active === 'settings' ? 'active' : '' ?>" href="<?= e(url('settings')) ?>">Nastavení</a>
+            <?php foreach ($navChildren as $navChild): ?>
+                <a class="nav-child-link <?= $currentRoute === 'child' && $currentChildId === (int)$navChild['id'] ? 'active' : '' ?>" href="<?= e(url('child', ['id' => $navChild['id']])) ?>"><?= e($navChild['first_name']) ?></a>
+            <?php endforeach; ?>
         </nav>
         <div class="account">
             <span><?= e($family['name'] ?? $user['display_name']) ?></span>
@@ -52,7 +52,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endforeach; ?>
     <?php $content(); ?>
 </main>
-<script src="assets/app.js?v=16"></script>
+<script src="assets/app.js?v=17"></script>
 </body>
 </html><?php
 }
