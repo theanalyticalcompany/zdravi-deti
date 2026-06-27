@@ -928,6 +928,10 @@ th {
     margin-top: 1rem;
 }
 
+.document-page {
+    scroll-margin-top: 5rem;
+}
+
 .document-list {
     display: grid;
     gap: .65rem;

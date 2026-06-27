@@ -7,7 +7,11 @@ if (!is_file($configPath)) {
     $configPath = __DIR__ . '/../config/config.example.php';
 }
 
+ob_start();
 $config = require $configPath;
+if (ob_get_level() > 0) {
+    ob_end_clean();
+}
 date_default_timezone_set($config['app']['timezone'] ?? 'Europe/Prague');
 
 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');

@@ -939,7 +939,8 @@ function page_child(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     $child = require_child_access((int)($_GET['id'] ?? 0), (int)$user['id']);
-    $range = in_array($_GET['range'] ?? '72', ['12', '24', '72'], true) ? (int)$_GET['range'] : 72;
+    $rangeParam = (string)($_GET['range'] ?? '72');
+    $range = in_array($rangeParam, ['12', '24', '72'], true) ? (int)$rangeParam : 72;
     $openDocuments = ($_GET['documents'] ?? '') === '1';
     $openAppointments = ($_GET['appointments'] ?? '') === '1';
     $documentUploaded = in_array($_GET['document_uploaded'] ?? '', ['ehic', 'document'], true) ? (string)$_GET['document_uploaded'] : '';
@@ -969,7 +970,7 @@ function page_child(): void
 
         <div class="actions child-actions">
             <a class="button" href="<?= e(url('child_doctors', ['child_id' => $child['id']])) ?>">Lékaři</a>
-            <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>" <?= $openDocuments ? 'data-dialog-open="documents-dialog"' : '' ?>>Dokumentace</a>
+            <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'documents' => 1])) ?>#documents-dialog">Dokumentace</a>
             <a class="button" href="<?= e(url('child', ['id' => $child['id'], 'appointments' => 1])) ?>#appointments">Kontroly</a>
             <a class="button" href="<?= e(url('export', ['child_id' => $child['id']])) ?>">Export pro lékaře</a>
         </div>
@@ -985,13 +986,13 @@ function page_child(): void
         }
         ?>
         <?php if ($openDocuments): ?>
-        <dialog class="modal document-modal" id="documents-dialog" open data-open-on-load="1">
+        <section class="panel document-page" id="documents-dialog">
             <div class="modal-head">
                 <div>
                     <h2>Dokumentace</h2>
                     <p class="muted"><?= e($child['first_name'] . ' ' . $child['last_name']) ?></p>
                 </div>
-                <button class="button subtle" type="button" data-dialog-close>Zavřít</button>
+                <a class="button subtle" href="<?= e(url('child', ['id' => $child['id']])) ?>">Zavřít</a>
             </div>
 
             <?php if ($documentUploaded): ?>
@@ -1063,23 +1064,13 @@ function page_child(): void
                             <?php endforeach; ?>
                         </select>
                     </label>
-                    <label>Lékař
-                        <select name="provider_id">
-                            <option value="">Bez vazby na lékaře</option>
-                            <?php foreach ($documentProviderOptions as $providerId => $provider): ?>
-                                <option value="<?= e($providerId) ?>">
-                                    <?= e(trim(($provider['name'] ?? $provider['provider_name'] ?? 'Lékař') . ' · ' . (provider_specialty_label($provider) ?: 'bez oboru') . ' · ' . provider_address_label($provider), ' ·')) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
                     <label>Poznámka <textarea name="note" rows="3" placeholder="Krátký kontext, závěr, doporučení"></textarea></label>
                     <label class="check"><input type="checkbox" name="is_sensitive" value="1"> Citlivý dokument</label>
                     <label>Soubor <input required type="file" name="document_file" accept="image/*,.pdf,.doc,.docx,.txt"></label>
                     <button class="button primary" type="submit">Uložit dokument</button>
                 </form>
             </section>
-        </dialog>
+        </section>
         <?php endif; ?>
 
         <section class="metrics">

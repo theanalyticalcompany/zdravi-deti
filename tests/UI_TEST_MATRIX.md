@@ -30,9 +30,10 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 - Ověření: EHIC se nahraje jako citlivý šifrovaný dokument, zobrazí se v přehledu, `document_view` vrátí HTML stránku s náhledem, `document_inline` vrátí HTTP 200, `Content-Disposition: inline` a dešifrovaná PNG data; stažení vrátí attachment; smazání odstraní odkaz z přehledu.
 
 ### TC-FLOW-006 Dokumentace dítěte
-- Ovládací prvky: `Dokumentace`, `Hledat`, `Uložit dokument`, `Zobrazit`, `Stáhnout`, `Smazat`.
+- Ovládací prvky: `Dokumentace`, `Uložit EHIC`, `Uložit dokument`, `Zobrazit`, `Stáhnout`, `Smazat`.
 - Krytí: `tests/orchestrated_flows.php`, `tests/smoke.php`.
-- Ověření: modal dokumentace obsahuje seznam dokumentů, upload EHIC a upload běžného dokumentu; dokumenty jsou šifrované a dostupné jen oprávněným rodičům.
+- Ověření: dokumentace obsahuje seznam dokumentů, upload EHIC a upload běžného dokumentu; dokumenty jsou šifrované a dostupné jen oprávněným rodičům.
+- Mobilní ověření: dokumentace se otevře jako běžná sekce stránky, ne jako `<dialog>`, aby šel spolehlivě použít souborový picker v PWA.
 
 ### TC-FLOW-007 Export pro lékaře
 - Ovládací prvky: `Export pro lékaře`, `Uložit nebo tisknout PDF`, `Aktualizovat export`.

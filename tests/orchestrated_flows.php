@@ -212,8 +212,11 @@ try {
     $pngPath = $tmpDir . '/ehic.png';
     file_put_contents($pngPath, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lS9Q1wAAAABJRU5ErkJggg=='));
     $documentsPage = $owner->get('/?r=child&id=' . $childOne . '&documents=1');
-    assert_all_controls($documentsPage->body, ['Uložit EHIC', 'Uložit dokument', 'Zavřít'], 'document dialog controls');
-    assert_not_contains($documentsPage->body, 'Vybrat lékaře', 'child documentation no longer contains provider search');
+    assert_all_controls($documentsPage->body, ['Uložit EHIC', 'Uložit dokument', 'Zavřít'], 'document controls');
+    assert_contains($documentsPage->body, 'document-page', 'child documentation is rendered as a mobile-safe page section');
+    assert_not_contains($documentsPage->body, '<dialog class="modal document-modal"', 'child documentation is not trapped in a mobile dialog');
+    $documentUploadBlock = extract_between($documentsPage->body, '<h3>Nahrát nový dokument</h3>', '</section>');
+    assert_not_contains($documentUploadBlock, 'name="provider_id"', 'child documentation no longer contains provider selection');
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),
         'child_id' => (string)$childOne,
@@ -499,6 +502,20 @@ function assert_contains(string $haystack, string $needle, string $message): voi
 function assert_not_contains(string $haystack, string $needle, string $message): void
 {
     assert_true(strpos($haystack, $needle) === false, $message);
+}
+
+function extract_between(string $haystack, string $start, string $end): string
+{
+    $startPos = strpos($haystack, $start);
+    if ($startPos === false) {
+        return '';
+    }
+    $startPos += strlen($start);
+    $endPos = strpos($haystack, $end, $startPos);
+    if ($endPos === false) {
+        return substr($haystack, $startPos);
+    }
+    return substr($haystack, $startPos, $endPos - $startPos);
 }
 
 function assert_header_contains(TestResponse $response, string $header, string $needle, string $message): void

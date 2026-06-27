@@ -133,15 +133,14 @@ function ensure_runtime_schema(): void
                 UNIQUE (source, source_id)
             )'
         );
+        $providerColumns = array_column(db()->query('PRAGMA table_info(healthcare_providers)')->fetchAll(), 'name');
+        if (!in_array('search_text', $providerColumns, true)) {
+            db()->exec('ALTER TABLE healthcare_providers ADD COLUMN search_text TEXT NULL');
+        }
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_name ON healthcare_providers(name)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_search_text ON healthcare_providers(search_text)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_care_field ON healthcare_providers(care_field)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_city ON healthcare_providers(city)');
-        $providerColumns = array_column(db()->query('PRAGMA table_info(healthcare_providers)')->fetchAll(), 'name');
-        if (!in_array('search_text', $providerColumns, true)) {
-            db()->exec('ALTER TABLE healthcare_providers ADD COLUMN search_text TEXT NULL');
-            db()->exec('CREATE INDEX IF NOT EXISTS idx_healthcare_providers_search_text ON healthcare_providers(search_text)');
-        }
         db()->exec(
             'CREATE TABLE IF NOT EXISTS healthcare_provider_specialties (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
