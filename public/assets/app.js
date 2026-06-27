@@ -61,6 +61,16 @@ document.querySelectorAll('form[data-upload-form]').forEach((form) => {
     });
 });
 
+document.querySelectorAll('img[data-preview-fallback]').forEach((image) => {
+    image.addEventListener('error', () => {
+        const fallback = document.getElementById(image.getAttribute('data-preview-fallback'));
+        if (fallback) {
+            fallback.hidden = false;
+        }
+        image.hidden = true;
+    });
+});
+
 document.addEventListener('click', (event) => {
     document.querySelectorAll('.ehic-menu[open]').forEach((menu) => {
         if (!menu.contains(event.target)) {

@@ -236,6 +236,11 @@ try {
     assert_true($mobileDocument !== null, 'mobile document is stored in database');
     $mobileDocumentPath = uploaded_document_path((string)$mobileDocument['storage_path']);
     assert_true(uploaded_document_file_exists($mobileDocumentPath), 'mobile document file exists before deleting another document');
+    $mobileView = $owner->get('/?r=document_view&id=' . (int)$mobileDocument['id']);
+    assert_status($mobileView, 200, 'mobile document view returns HTTP 200');
+    assert_contains($mobileView->body, 'Náhled tohoto formátu', 'unsupported mobile image has visible fallback instead of blank preview');
+    assert_contains($mobileView->body, 'Otevřít soubor', 'unsupported mobile image can be opened directly');
+    assert_not_contains($mobileView->body, 'document-preview-image', 'unsupported mobile image does not render a broken image preview');
 
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),

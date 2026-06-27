@@ -1402,9 +1402,12 @@ function action_document_view(): void
     }
     audit_sensitive_document_view($document, (int)$user['id']);
     $mimeType = document_response_mime_type($document);
-    $isImage = strpos($mimeType, 'image/') === 0;
-    $isPdf = $mimeType === 'application/pdf';
-    render_layout($document['title'] ?: 'Dokument', function () use ($document, $mimeType, $isImage, $isPdf) {
+    $canPreview = document_can_inline_preview($document, $mimeType);
+    $isPreviewImage = $canPreview && strpos($mimeType, 'image/') === 0;
+    $isPreviewPdf = $canPreview && $mimeType === 'application/pdf';
+    $inlineUrl = url('document_inline', ['id' => $document['id']]);
+    $downloadUrl = url('document_download', ['id' => $document['id']]);
+    render_layout($document['title'] ?: 'Dokument', function () use ($document, $mimeType, $isPreviewImage, $isPreviewPdf, $inlineUrl, $downloadUrl) {
         ?>
         <div class="page-head">
             <div>
@@ -1413,16 +1416,19 @@ function action_document_view(): void
             </div>
             <div class="actions">
                 <a class="button" href="<?= e(url('child', ['id' => $document['child_id'], 'documents' => 1])) ?>">Zpět na dokumentaci</a>
-                <a class="button" href="<?= e(url('document_download', ['id' => $document['id']])) ?>">Stáhnout</a>
+                <a class="button" href="<?= e($inlineUrl) ?>" target="_blank" rel="noopener">Otevřít soubor</a>
+                <a class="button" href="<?= e($downloadUrl) ?>">Stáhnout</a>
             </div>
         </div>
         <section class="panel document-viewer">
-            <?php if ($isImage): ?>
-                <img class="document-preview-image" src="<?= e(url('document_inline', ['id' => $document['id']])) ?>" alt="<?= e($document['title'] ?: 'Dokument') ?>">
-            <?php elseif ($isPdf): ?>
-                <iframe class="document-preview-frame" src="<?= e(url('document_inline', ['id' => $document['id']])) ?>" title="<?= e($document['title'] ?: 'Dokument') ?>"></iframe>
+            <?php if ($isPreviewImage): ?>
+                <img class="document-preview-image" src="<?= e($inlineUrl) ?>" alt="<?= e($document['title'] ?: 'Dokument') ?>" data-preview-fallback="document-preview-fallback">
+                <div class="empty" id="document-preview-fallback" hidden>Náhled se v tomto prohlížeči nepodařilo zobrazit. Použijte otevření souboru nebo stažení.</div>
+            <?php elseif ($isPreviewPdf): ?>
+                <iframe class="document-preview-frame" src="<?= e($inlineUrl) ?>" title="<?= e($document['title'] ?: 'Dokument') ?>"></iframe>
+                <div class="empty">Pokud je náhled PDF prázdný, použijte otevření souboru nebo stažení.</div>
             <?php else: ?>
-                <div class="empty">Tento typ dokumentu nejde bezpečně zobrazit přímo v aplikaci. Použijte stažení souboru.</div>
+                <div class="empty">Náhled tohoto formátu nemusí být v PWA podporovaný. Použijte otevření souboru nebo stažení.</div>
             <?php endif; ?>
             <?php if (!empty($document['note'])): ?>
                 <p class="muted"><?= e($document['note']) ?></p>
@@ -1495,6 +1501,16 @@ function document_response_mime_type(array $document): string
         'heif' => 'image/heif',
         'txt' => 'text/plain; charset=utf-8',
     ][$extension] ?? 'application/octet-stream';
+}
+
+function document_can_inline_preview(array $document, string $mimeType): bool
+{
+    $extension = text_lower((string)pathinfo((string)$document['original_filename'], PATHINFO_EXTENSION));
+    if ($mimeType === 'application/pdf') {
+        return true;
+    }
+    return in_array($extension, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)
+        && in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
 }
 
 function send_document_file(array $document, string $path, string $disposition): void
