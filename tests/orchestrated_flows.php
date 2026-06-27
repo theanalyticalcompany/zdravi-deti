@@ -232,6 +232,11 @@ try {
     ]);
     $documentsPage = $owner->followLastRedirect();
     assert_contains($documentsPage->body, 'Mobilní fotka', 'HEIC-like mobile document is accepted');
+    $mobileDocument = latest_document_by_title($pdo, $childOne, 'Mobilní fotka');
+    assert_true($mobileDocument !== null, 'mobile document is stored in database');
+    $mobileDocumentPath = uploaded_document_path((string)$mobileDocument['storage_path']);
+    assert_true(uploaded_document_file_exists($mobileDocumentPath), 'mobile document file exists before deleting another document');
+
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),
         'child_id' => (string)$childOne,
@@ -247,6 +252,11 @@ try {
 
     $ehicId = latest_ehic_id($pdo, $childOne);
     assert_true($ehicId > 0, 'EHIC is stored in database');
+    $ehicDocument = document_by_id($pdo, $ehicId);
+    assert_true($ehicDocument !== null, 'EHIC document row is available before delete');
+    $ehicPath = uploaded_document_path((string)$ehicDocument['storage_path']);
+    assert_true(uploaded_document_file_exists($ehicPath), 'EHIC file exists before delete');
+    assert_true(document_count_for_child($pdo, $childOne) >= 2, 'child has multiple documents before deleting one');
     $dashboard = $owner->get('/?r=dashboard');
     assert_contains($dashboard->body, '?r=document_view&amp;id=' . $ehicId, 'EHIC view link is present in dashboard menu');
 
@@ -273,6 +283,14 @@ try {
     ]);
     $dashboard = $owner->followLastRedirect();
     assert_not_contains($dashboard->body, '?r=document_view&amp;id=' . $ehicId, 'deleted EHIC disappears from dashboard');
+    assert_true(document_by_id($pdo, $ehicId) === null, 'deleted EHIC is removed from database');
+    assert_true(!uploaded_document_file_exists($ehicPath), 'deleted EHIC file is removed from storage');
+    assert_true(document_by_id($pdo, (int)$mobileDocument['id']) !== null, 'deleting EHIC keeps other child document in database');
+    assert_true(uploaded_document_file_exists($mobileDocumentPath), 'deleting EHIC keeps other child document file in storage');
+    assert_true(document_count_for_child($pdo, $childOne) >= 1, 'deleting one document does not delete all child documents');
+    $documentsAfterDelete = $owner->get('/?r=child&id=' . $childOne . '&documents=1');
+    assert_contains($documentsAfterDelete->body, 'Mobilní fotka', 'deleting one document keeps another document visible');
+    assert_not_contains($documentsAfterDelete->body, '?r=document_view&amp;id=' . $ehicId, 'deleted document is no longer visible in documentation');
 
     $recordId = first_record_id($pdo, $childOne);
     $edit = $owner->get('/?r=record_edit&id=' . $recordId);
@@ -582,6 +600,38 @@ function latest_ehic_id(PDO $pdo, int $childId): int
     $stmt = $pdo->prepare("SELECT id FROM child_documents WHERE child_id = ? AND document_type = 'ehic' ORDER BY id DESC LIMIT 1");
     $stmt->execute([$childId]);
     return (int)$stmt->fetchColumn();
+}
+
+function latest_document_by_title(PDO $pdo, int $childId, string $title): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM child_documents WHERE child_id = ? AND title = ? ORDER BY id DESC LIMIT 1');
+    $stmt->execute([$childId, $title]);
+    return $stmt->fetch() ?: null;
+}
+
+function document_by_id(PDO $pdo, int $documentId): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM child_documents WHERE id = ? LIMIT 1');
+    $stmt->execute([$documentId]);
+    return $stmt->fetch() ?: null;
+}
+
+function document_count_for_child(PDO $pdo, int $childId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM child_documents WHERE child_id = ?');
+    $stmt->execute([$childId]);
+    return (int)$stmt->fetchColumn();
+}
+
+function uploaded_document_path(string $storagePath): string
+{
+    return dirname(__DIR__) . '/var/uploads/' . ltrim(str_replace(['\\', '..'], ['/', ''], $storagePath), '/');
+}
+
+function uploaded_document_file_exists(string $path): bool
+{
+    clearstatcache(true, $path);
+    return is_file($path);
 }
 
 function first_record_id(PDO $pdo, int $childId): int

@@ -1516,17 +1516,20 @@ function action_document_delete(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
-    $document = child_document_for_user((int)($_POST['document_id'] ?? 0), (int)$user['id']);
+    $documentId = (int)($_POST['document_id'] ?? 0);
+    $document = child_document_for_user($documentId, (int)$user['id']);
     if (!$document) {
         flash('error', 'Dokument se nepodařilo najít.');
         redirect('dashboard');
     }
+    $path = document_storage_path((string)$document['storage_path']);
+    if (!delete_document_storage_file($path)) {
+        flash('error', 'Soubor dokumentu se nepodařilo smazat. Záznam zůstal zachovaný.');
+        redirect('child', ['id' => (int)$document['child_id'], 'documents' => 1]);
+    }
+
     $deleted = delete_child_document((int)$document['id'], (int)$document['child_id']);
     if ($deleted) {
-        $path = document_storage_path((string)$deleted['storage_path']);
-        if (is_file($path)) {
-            @unlink($path);
-        }
         audit_log('child.document_deleted', (int)$user['id'], $family ? (int)$family['id'] : null, 'child_document', (int)$document['id'], ['child_id' => (int)$document['child_id']]);
         flash('success', 'Dokument byl smazán.');
     }
@@ -1534,6 +1537,26 @@ function action_document_delete(): void
         redirect('dashboard');
     }
     redirect('child', ['id' => (int)$document['child_id'], 'documents' => 1]);
+}
+
+function delete_document_storage_file(string $path): bool
+{
+    if (!is_file($path)) {
+        return true;
+    }
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        clearstatcache(true, $path);
+        if (!is_file($path)) {
+            return true;
+        }
+        if (@unlink($path)) {
+            clearstatcache(true, $path);
+            return !is_file($path);
+        }
+        usleep(50000);
+    }
+    clearstatcache(true, $path);
+    return !is_file($path);
 }
 
 function action_appointment_save(): void
