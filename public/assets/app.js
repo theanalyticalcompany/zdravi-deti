@@ -49,6 +49,18 @@ document.querySelectorAll('dialog').forEach((dialog) => {
     });
 });
 
+document.querySelectorAll('form[data-upload-form]').forEach((form) => {
+    form.addEventListener('submit', () => {
+        const button = form.querySelector('button[type="submit"]');
+        if (!button) {
+            return;
+        }
+        button.disabled = true;
+        button.textContent = form.getAttribute('data-upload-label') || 'Nahrávám...';
+        form.setAttribute('aria-busy', 'true');
+    });
+});
+
 document.addEventListener('click', (event) => {
     document.querySelectorAll('.ehic-menu[open]').forEach((menu) => {
         if (!menu.contains(event.target)) {

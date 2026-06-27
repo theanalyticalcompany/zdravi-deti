@@ -683,7 +683,7 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
                 <input type="hidden" name="document_type" value="ehic">
                 <input type="hidden" name="is_sensitive" value="1">
                 <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
-                <label>Nahrát nový <input required type="file" name="document_file" accept="image/*,.pdf"></label>
+                <label>Nahrát nový <input required type="file" name="document_file" accept="image/*,.heic,.heif,.pdf"></label>
                 <button class="button tiny" type="submit">Nahrát</button>
             </form>
         </div>
@@ -1039,21 +1039,21 @@ function page_child(): void
 
             <section class="subsection document-section">
                 <h3>Nahrát EHIC</h3>
-                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
+                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack" data-upload-form data-upload-label="Nahrávám EHIC...">
                     <?= csrf_field() ?>
                     <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
                     <input type="hidden" name="title" value="EHIC">
                     <input type="hidden" name="document_type" value="ehic">
                     <input type="hidden" name="is_sensitive" value="1">
                     <label>Poznámka <textarea name="note" rows="2" placeholder="Volitelné, např. platnost nebo pojišťovna"></textarea></label>
-                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.pdf"></label>
+                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.heic,.heif,.pdf"></label>
                     <button class="button primary" type="submit">Uložit EHIC</button>
                 </form>
             </section>
 
             <section class="subsection document-section">
                 <h3>Nahrát nový dokument</h3>
-                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack">
+                <form method="post" action="<?= e(url('document_upload')) ?>" enctype="multipart/form-data" class="stack" data-upload-form data-upload-label="Nahrávám dokument...">
                     <?= csrf_field() ?>
                     <input type="hidden" name="child_id" value="<?= e($child['id']) ?>">
                     <label>Název <input required name="title" maxlength="255" placeholder="Např. zpráva z pohotovosti"></label>
@@ -1066,7 +1066,7 @@ function page_child(): void
                     </label>
                     <label>Poznámka <textarea name="note" rows="3" placeholder="Krátký kontext, závěr, doporučení"></textarea></label>
                     <label class="check"><input type="checkbox" name="is_sensitive" value="1"> Citlivý dokument</label>
-                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.pdf,.doc,.docx,.txt"></label>
+                    <label>Soubor <input required type="file" name="document_file" accept="image/*,.heic,.heif,.pdf,.doc,.docx,.txt"></label>
                     <button class="button primary" type="submit">Uložit dokument</button>
                 </form>
             </section>
@@ -1338,15 +1338,15 @@ function action_document_upload(): void
             throw new InvalidArgumentException(document_upload_error_message((int)($file['error'] ?? UPLOAD_ERR_NO_FILE)));
         }
         $sizeBytes = (int)($file['size'] ?? 0);
-        if ($sizeBytes <= 0 || $sizeBytes > 10 * 1024 * 1024) {
-            throw new InvalidArgumentException('Soubor musí mít velikost do 10 MB.');
+        if ($sizeBytes <= 0 || $sizeBytes > 25 * 1024 * 1024) {
+            throw new InvalidArgumentException('Soubor musí mít velikost do 25 MB.');
         }
 
         $originalName = trim((string)($file['name'] ?? 'dokument'));
         $extension = text_lower((string)pathinfo($originalName, PATHINFO_EXTENSION));
-        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'doc', 'docx', 'txt'];
+        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'doc', 'docx', 'txt'];
         if (!in_array($extension, $allowedExtensions, true)) {
-            throw new InvalidArgumentException('Povolené jsou soubory PDF, obrázky, DOC/DOCX a TXT.');
+            throw new InvalidArgumentException('Povolené jsou soubory PDF, obrázky včetně HEIC/HEIF, DOC/DOCX a TXT.');
         }
 
         $mimeType = null;
@@ -1491,6 +1491,8 @@ function document_response_mime_type(array $document): string
         'png' => 'image/png',
         'webp' => 'image/webp',
         'gif' => 'image/gif',
+        'heic' => 'image/heic',
+        'heif' => 'image/heif',
         'txt' => 'text/plain; charset=utf-8',
     ][$extension] ?? 'application/octet-stream';
 }

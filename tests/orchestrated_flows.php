@@ -215,8 +215,23 @@ try {
     assert_all_controls($documentsPage->body, ['Uložit EHIC', 'Uložit dokument', 'Zavřít'], 'document controls');
     assert_contains($documentsPage->body, 'document-page', 'child documentation is rendered as a mobile-safe page section');
     assert_not_contains($documentsPage->body, '<dialog class="modal document-modal"', 'child documentation is not trapped in a mobile dialog');
+    assert_contains($documentsPage->body, 'data-upload-form', 'document upload forms provide PWA submit feedback');
+    assert_contains($documentsPage->body, '.heic', 'document upload accepts iPhone HEIC files');
     $documentUploadBlock = extract_between($documentsPage->body, '<h3>Nahrát nový dokument</h3>', '</section>');
     assert_not_contains($documentUploadBlock, 'name="provider_id"', 'child documentation no longer contains provider selection');
+    $heicPath = $tmpDir . '/mobilni-fotka.heic';
+    file_put_contents($heicPath, 'fake heic payload');
+    $owner->multipart('/?r=document_upload', [
+        'csrf' => csrf_from($documentsPage->body),
+        'child_id' => (string)$childOne,
+        'title' => 'Mobilní fotka',
+        'document_type' => 'general',
+        'note' => 'test HEIC',
+    ], [
+        'document_file' => $heicPath,
+    ]);
+    $documentsPage = $owner->followLastRedirect();
+    assert_contains($documentsPage->body, 'Mobilní fotka', 'HEIC-like mobile document is accepted');
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),
         'child_id' => (string)$childOne,
