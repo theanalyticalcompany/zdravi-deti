@@ -411,7 +411,7 @@ function now_sql(): string
 
 function role_label(string $role): string
 {
-    return $role === 'OWNER' ? 'Vlastník' : 'Rodič';
+    return $role === 'OWNER' ? 'Administrátor rodiny' : 'Rodič';
 }
 
 function app_base_url(): string
@@ -732,7 +732,7 @@ function require_owner(array $family): void
 {
     if (($family['role'] ?? '') !== 'OWNER') {
         http_response_code(403);
-        echo 'Tato akce je dostupná pouze vlastníkovi rodiny.';
+        echo 'Tato akce je dostupná pouze administrátorovi rodiny.';
         exit;
     }
 }

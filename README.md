@@ -11,7 +11,7 @@ Aplikace je záměrně napsaná jako lehký PHP monolit s MySQL/MariaDB databáz
 - volitelné Google OAuth přihlášení,
 - správa aktivních zařízení a odhlášení ostatních sessions,
 - automatické založení rodiny při registraci,
-- role vlastníka rodiny a dalších rodičů,
+- role administrátora rodiny a dalších rodičů,
 - pozvánky rodičů e-mailem,
 - správa dětí a přístupů rodičů,
 - jednorázový import poskytovatelů zdravotních služeb z NRPZS/ÚZIS,

@@ -25,7 +25,7 @@ Tento přístup snižuje provozní náklady a usnadňuje nasazení na sdílený 
 
 ## Role
 
-- Vlastník rodiny může spravovat rodinu, děti, rodiče a zrušit rodinu.
+- Administrátor rodiny může spravovat rodinu, děti, rodiče a zrušit rodinu.
 - Další rodiče mohou pracovat se záznamy a dětmi podle přiděleného přístupu.
 - Zrušení rodiny smaže rodinu, související záznamy a odebere členství ostatních rodičů.
 

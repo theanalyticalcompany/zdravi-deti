@@ -10,7 +10,7 @@ Spustitelné kontroly:
 
 1. Otevřít registraci.
 2. Vyplnit jméno, e-mail a heslo.
-3. Ověřit přesměrování na přehled a existenci rodiny vlastníka.
+3. Ověřit přesměrování na přehled a existenci rodiny administrátora.
 4. Ověřit dostupnost Správy rodiny.
 
 ## TC-02 Přidání dětí
@@ -22,11 +22,11 @@ Spustitelné kontroly:
 
 ## TC-03 Pozvánka rodiče a přístupy
 
-1. Vlastník odešle pozvánku na e-mail dalšího rodiče.
+1. Administrátor rodiny odešle pozvánku na e-mail dalšího rodiče.
 2. Pozvánka se zobrazí v seznamu a lze ji zrušit.
 3. Pozvaný rodič se zaregistruje.
 4. Bez explicitního přístupu nevidí žádné dítě.
-5. Vlastník mu nasdílí jen první dítě.
+5. Administrátor rodiny mu nasdílí jen první dítě.
 6. Pozvaný rodič vidí první dítě a nevidí druhé dítě.
 
 ## TC-04 Záznamy dítěte
@@ -70,7 +70,7 @@ Spustitelné kontroly:
 1. Otevřít Nastavení.
 2. Ověřit seznam aktivních zařízení.
 3. Uživatel v roli rodiče vidí možnost smazat vlastní účet.
-4. Vlastník rodiny možnost smazání účtu nevidí, dokud rodina existuje.
+4. Administrátor rodiny možnost smazání účtu nevidí, dokud rodina existuje.
 5. Ověřit odhlášení ostatních zařízení, pokud existují.
 
 ## TC-09 Léčiva a typy péče

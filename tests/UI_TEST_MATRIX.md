@@ -4,7 +4,7 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 
 ## Automatizované průchody
 
-### TC-FLOW-001 Nová rodina a vlastník
+### TC-FLOW-001 Nová rodina a administrátor
 - Ovládací prvky: `Vytvořit účet`, `Správa rodiny`, `Přidat dítě`, `Uložit`, `Zrušit rodinu`.
 - Krytí: `tests/orchestrated_flows.php`.
 - Ověření: registrace založí uživatele, vytvoří rodinu a zobrazí správu rodiny.
@@ -42,7 +42,7 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 ### TC-FLOW-008 Nastavení a účet rodiče
 - Ovládací prvky: `Odhlásit`, `Odhlásit ostatní`, `Odhlásit`, `Smazat můj účet`.
 - Krytí: `tests/orchestrated_flows.php`, `tests/smoke.php`.
-- Ověření: přizvaný rodič může smazat svůj účet; vlastník rodiny tlačítko nevidí, dokud rodina existuje.
+- Ověření: přizvaný rodič může smazat svůj účet; administrátor rodiny tlačítko nevidí, dokud rodina existuje.
 
 ### TC-FLOW-009 Léčiva a typy péče
 - Ovládací prvky: `Přidat`, `Aktivovat`, `Deaktivovat`, `Smazat`, `Přidat typ péče`.

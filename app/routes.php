@@ -478,7 +478,7 @@ function page_settings(): void
 
             <?php if ($isCurrentFamilyOwner): ?>
                 <div class="empty">
-                    Tento účet je vlastníkem rodiny. Nejdříve zrušte rodinu ve Správě rodiny, nebo vlastnictví v budoucnu předejte jinému rodiči.
+                    Tento účet je administrátorem rodiny. Nejdříve zrušte rodinu ve Správě rodiny, nebo správu v budoucnu předejte jinému rodiči.
                 </div>
             <?php else: ?>
                 <form method="post" action="<?= e(url('account_delete')) ?>" class="stack" data-confirm="Opravdu chcete smazat svůj účet? Tato akce odhlásí všechna zařízení a nejde vrátit zpět.">
@@ -508,7 +508,7 @@ function action_account_delete(): void
         redirect('settings');
     }
     if (($family['role'] ?? '') === 'OWNER') {
-        flash('error', 'Účet vlastníka rodiny nejde smazat, dokud rodina existuje.');
+        flash('error', 'Účet administrátora rodiny nejde smazat, dokud rodina existuje.');
         redirect('settings');
     }
     if (!empty($user['password_hash'])) {
@@ -576,7 +576,7 @@ function page_dashboard(): void
 
         <?php if (!$overview): ?>
             <section class="panel">
-                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat ve správě rodiny.</div>
+                <div class="empty">Zatím tu není žádné dítě. Administrátor rodiny ho může přidat ve správě rodiny.</div>
                 <div class="panel-actions">
                     <a class="button primary" href="<?= e(url('family')) ?>">Přejít na správu rodiny</a>
                 </div>
@@ -2109,7 +2109,7 @@ function page_family(): void
         <section class="panel">
             <h2>Děti</h2>
             <?php if (!$children): ?>
-                <div class="empty">Zatím tu není žádné dítě. Vlastník rodiny ho může přidat níže.</div>
+                <div class="empty">Zatím tu není žádné dítě. Administrátor rodiny ho může přidat níže.</div>
             <?php else: ?>
                 <div class="admin-list">
                     <?php foreach ($children as $child): ?>
@@ -2278,7 +2278,7 @@ function page_family(): void
         <?php elseif ($family): ?>
             <section class="panel" id="family-access">
                 <h2>Přístupy k dětem</h2>
-                <p class="muted">Přístupy k dětem spravuje vlastník rodiny.</p>
+                <p class="muted">Přístupy k dětem spravuje administrátor rodiny.</p>
             </section>
         <?php endif; ?>
         <?php if ($isOwner): ?>
@@ -2407,7 +2407,7 @@ function action_member_remove(): void
     require_owner($family);
     $removedUserId = (int)($_POST['user_id'] ?? 0);
     if ($removedUserId === (int)$family['owner_user_id']) {
-        flash('error', 'Vlastníka rodiny nelze odebrat.');
+        flash('error', 'Administrátora rodiny nelze odebrat.');
         redirect('family');
     }
     db()->beginTransaction();
