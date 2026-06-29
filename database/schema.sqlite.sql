@@ -4,6 +4,9 @@ CREATE TABLE users (
     display_name TEXT NOT NULL,
     password_hash TEXT NULL,
     google_subject_id TEXT NULL UNIQUE,
+    email_verified_at TEXT NULL,
+    email_verification_token_hash TEXT NULL,
+    email_verification_expires_at TEXT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at TEXT NULL,
@@ -11,6 +14,7 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_email_verification_token ON users(email_verification_token_hash);
 
 CREATE TABLE families (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

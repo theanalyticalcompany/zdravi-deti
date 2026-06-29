@@ -63,7 +63,7 @@ assert_true(strpos($encryptedBytes, 'tajný obsah dokumentu') === false, 'encryp
 assert_true(document_decrypt_bytes($encryptedBytes) === 'tajný obsah dokumentu', 'encrypted document can be decrypted');
 
 $userId = create_user('rodic@example.test', 'Testovací rodič', 'bezpecne-heslo-123');
-$googleUserId = create_user('rodic@example.test', 'Google rodič', null, 'google-subject-1');
+$googleUserId = create_user('rodic@example.test', 'Google rodič', null, 'google-subject-1', true);
 assert_true($googleUserId !== $userId, 'google account can coexist with password account for same email');
 assert_true((int)find_password_user_by_email('rodic@example.test')['id'] === $userId, 'password login keeps password account');
 assert_true((int)find_user_by_google_subject('google-subject-1')['id'] === $googleUserId, 'google login uses google subject account');
@@ -114,7 +114,11 @@ $pdo->prepare('INSERT INTO child_access (child_id, user_id) VALUES (?, ?)')->exe
 
 $invitedUserId = create_user('druhy.rodic@example.test', 'Druhý rodič', 'bezpecne-heslo-456');
 $acceptedInvitations = accept_pending_invitations_for_user($invitedUserId, 'druhy.rodic@example.test');
-assert_true(count($acceptedInvitations) === 1, 'pending invitation is accepted during registration');
+assert_true(count($acceptedInvitations) === 0, 'unverified invited user cannot accept pending invitation');
+assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test') !== null, 'unverified invited user keeps invitation pending');
+mark_user_email_verified($invitedUserId);
+$acceptedInvitations = accept_pending_invitations_for_user($invitedUserId, 'druhy.rodic@example.test');
+assert_true(count($acceptedInvitations) === 1, 'pending invitation is accepted after email verification');
 assert_true(pending_family_invitation_by_email((int)$family['id'], 'druhy.rodic@example.test') === null, 'accepted invitation is no longer pending');
 $invitedFamily = current_family($invitedUserId);
 assert_true($invitedFamily && (int)$invitedFamily['id'] === (int)$family['id'], 'invited user joins inviter family');
@@ -158,11 +162,14 @@ foreach ($pendingAfterRegistration as $item) {
 }
 assert_true($registeredInvitation && (int)$registeredInvitation['registered_user_id'] === $lateUserId, 'pending invitation detects already registered user');
 $acceptedRegistered = accept_registered_family_invitation((int)$family['id'], (int)$registeredInvitation['id']);
+assert_true($acceptedRegistered === null, 'registered invited user without verified email cannot be added to family');
+mark_user_email_verified($lateUserId);
+$acceptedRegistered = accept_registered_family_invitation((int)$family['id'], (int)$registeredInvitation['id']);
 assert_true($acceptedRegistered !== null, 'registered invited user can be added to family');
 assert_true(current_family($lateUserId) && (int)current_family($lateUserId)['id'] === (int)$family['id'], 'registered invited user becomes family member');
 assert_true(child_for_user($childId, $lateUserId) === null, 'registered invited user has no child access until owner grants it');
 
-$sideOwnerUserId = create_user('google.rodic@example.test', 'Google rodič', null, 'google-parent-side-family');
+$sideOwnerUserId = create_user('google.rodic@example.test', 'Google rodič', null, 'google-parent-side-family', true);
 $sideFamily = ensure_family($sideOwnerUserId, 'Google rodič');
 create_family_invitation((int)$family['id'], $userId, 'google.rodic@example.test');
 accept_pending_invitations_for_user($sideOwnerUserId, 'google.rodic@example.test');

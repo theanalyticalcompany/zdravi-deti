@@ -24,7 +24,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/assets/pwa-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-    <link rel="stylesheet" href="assets/app.css?v=19">
+    <link rel="stylesheet" href="assets/app.css?v=20">
 </head>
 <body>
 <header class="topbar">
@@ -42,6 +42,10 @@ function render_layout(string $title, callable $content, string $active = ''): v
         </nav>
         <div class="account">
             <span><?= e($family['name'] ?? $user['display_name']) ?></span>
+            <form method="post" action="<?= e(url('logout')) ?>" class="inline-form">
+                <?= csrf_field() ?>
+                <button class="button subtle" type="submit">Odhlásit</button>
+            </form>
             <a class="button subtle" href="<?= e(url('logout')) ?>">Odhlásit</a>
         </div>
     <?php endif; ?>
@@ -52,7 +56,7 @@ function render_layout(string $title, callable $content, string $active = ''): v
     <?php endforeach; ?>
     <?php $content(); ?>
 </main>
-<script src="assets/app.js?v=19"></script>
+<script src="assets/app.js?v=20"></script>
 </body>
 </html><?php
 }

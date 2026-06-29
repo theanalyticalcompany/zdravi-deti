@@ -4,11 +4,15 @@ CREATE TABLE users (
     display_name VARCHAR(190) NOT NULL,
     password_hash VARCHAR(255) NULL,
     google_subject_id VARCHAR(190) NULL UNIQUE,
+    email_verified_at DATETIME NULL,
+    email_verification_token_hash CHAR(64) NULL,
+    email_verification_expires_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_login_at DATETIME NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
-    KEY idx_users_email (email)
+    KEY idx_users_email (email),
+    KEY idx_users_email_verification_token (email_verification_token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE families (

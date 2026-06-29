@@ -133,6 +133,11 @@ try {
     assert_not_contains($parentDashboard->body, 'Anna Testova', 'invited parent has no child access before owner grants it');
 
     $parentId = user_id_by_email($pdo, 'parent@example.test');
+    $verifyToken = latest_email_verification_token_from_mail($root, 'parent@example.test');
+    assert_true($verifyToken !== '', 'parent email verification link is sent');
+    $parent->get('/?r=email_verify&token=' . urlencode($verifyToken));
+    $parent->followLastRedirect();
+
     $family = $owner->get('/?r=family');
     assert_contains($family->body, 'Druhy rodic', 'registered invited parent is visible to owner');
     $owner->post('/?r=access_save', [
@@ -581,6 +586,25 @@ function user_id_by_email(PDO $pdo, string $email): int
     $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND is_active = 1 ORDER BY id DESC LIMIT 1');
     $stmt->execute([$email]);
     return (int)$stmt->fetchColumn();
+}
+
+function latest_email_verification_token_from_mail(string $root, string $email): string
+{
+    $path = $root . '/var/mail.log';
+    if (!is_file($path)) {
+        return '';
+    }
+    $log = (string)file_get_contents($path);
+    $token = '';
+    foreach (preg_split('/\n\n(?=\\[\\d{4}-\\d{2}-\\d{2})/', $log) as $message) {
+        if (strpos($message, 'To: ' . $email) === false || strpos($message, 'r=email_verify&token=') === false) {
+            continue;
+        }
+        if (preg_match('/r=email_verify&token=([a-f0-9]{64})/', $message, $m)) {
+            $token = $m[1];
+        }
+    }
+    return $token;
 }
 
 function first_medication_id(PDO $pdo): int

@@ -96,6 +96,10 @@ document.querySelectorAll('[data-ehic-close]').forEach((button) => {
     });
 });
 
+document.querySelectorAll('[data-print-page]').forEach((button) => {
+    button.addEventListener('click', () => window.print());
+});
+
 document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') {
         return;

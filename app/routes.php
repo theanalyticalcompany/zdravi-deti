@@ -14,6 +14,7 @@ function dispatch(): void
     switch ($route) {
         case 'login': page_login(); break;
         case 'register': page_register(); break;
+        case 'email_verify': action_email_verify(); break;
         case 'password_forgot': page_password_forgot(); break;
         case 'password_reset': page_password_reset(); break;
         case 'logout': action_logout(); break;
@@ -245,6 +246,107 @@ function page_register(): void
         $email = text_lower(trim($_POST['email'] ?? ''));
         $name = trim($_POST['display_name'] ?? '');
         $password = (string)($_POST['password'] ?? '');
+        $blockedSeconds = rate_limit_blocked_seconds('register', client_ip());
+        if ($blockedSeconds > 0) {
+            audit_log('auth.register_rate_limited', null, null, 'user', null, ['email_hash' => hash('sha256', $email)]);
+            flash('error', 'Příliš mnoho pokusů o registraci. Zkuste to znovu za několik minut.');
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            rate_limit_hit('register', client_ip(), 5, 15 * 60, 30 * 60);
+            flash('error', 'Zadejte platný e-mail.');
+        } elseif (text_length($name) < 2) {
+            rate_limit_hit('register', client_ip(), 5, 15 * 60, 30 * 60);
+            flash('error', 'Zadejte jméno.');
+        } elseif (text_length($password) < 10) {
+            rate_limit_hit('register', client_ip(), 5, 15 * 60, 30 * 60);
+            flash('error', 'Heslo musí mít alespoň 10 znaků.');
+        } elseif ($existingPasswordUser = find_password_user_by_email($email)) {
+            rate_limit_hit('register', client_ip(), 5, 15 * 60, 30 * 60);
+            if (!user_email_is_verified($existingPasswordUser)) {
+                send_email_verification_message((int)$existingPasswordUser['id'], (string)$existingPasswordUser['email'], (string)$existingPasswordUser['display_name']);
+                flash('success', 'Pokud je e-mail registrovaný a čeká na ověření, poslali jsme nový ověřovací odkaz.');
+                redirect('login');
+            }
+            flash('error', 'Účet s tímto e-mailem už existuje.');
+        } else {
+            rate_limit_hit('register', client_ip(), 5, 15 * 60, 30 * 60);
+            $userId = create_user($email, $name, $password);
+            mark_invitations_registered($email);
+            send_email_verification_message($userId, $email, $name);
+            $family = current_family($userId) ?: ensure_family($userId, $name);
+            audit_log('auth.registered', $userId, (int)$family['id'], 'user', $userId, ['email_verified' => false]);
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = $userId;
+            remember_user_session($userId);
+            flash('success', 'Účet byl vytvořen. Zkontrolujte e-mail a potvrďte adresu; teprve potom se přijmou případné pozvánky do rodiny.');
+            redirect('dashboard');
+        }
+    }
+
+    $prefillEmail = text_lower(trim($_GET['email'] ?? ''));
+    render_layout('Registrace', function () use ($prefillEmail) {
+        ?>
+        <section class="auth-card">
+            <h1>Nový účet</h1>
+            <form method="post" class="stack">
+                <?= csrf_field() ?>
+                <label>Jméno <input required name="display_name" autocomplete="name"></label>
+                <label>E-mail <input required type="email" name="email" autocomplete="email" value="<?= e($prefillEmail) ?>"></label>
+                <label>Heslo <input required type="password" name="password" minlength="10" autocomplete="new-password"></label>
+                <button class="button primary" type="submit">Vytvořit účet</button>
+            </form>
+            <p class="muted">Už máte účet? <a href="<?= e(url('login')) ?>">Přihlásit</a></p>
+        </section>
+        <?php
+    });
+}
+
+function send_email_verification_message(int $userId, string $email, string $name): void
+{
+    $token = create_email_verification_token($userId);
+    $verifyUrl = app_base_url() . '/?r=email_verify&token=' . urlencode($token);
+    send_app_email(
+        $email,
+        'Ověření e-mailu v aplikaci Zdraví dětí',
+        "Dobrý den,\n\npotvrďte prosím e-mail pro účet {$name} v aplikaci Zdraví dětí.\n\nOvěření dokončíte zde:\n{$verifyUrl}\n\nOdkaz je platný 24 hodin. Po ověření se automaticky přijmou aktivní pozvánky odeslané na tuto adresu."
+    );
+    audit_log('auth.email_verification_requested', $userId, null, 'user', $userId, ['email_hash' => hash('sha256', text_lower($email))]);
+}
+
+function action_email_verify(): void
+{
+    $result = consume_email_verification_token((string)($_GET['token'] ?? ''));
+    if (!$result) {
+        flash('error', 'Odkaz pro ověření e-mailu je neplatný nebo vypršel.');
+        redirect('login');
+    }
+
+    $verifiedUser = $result['user'];
+    $invitations = $result['invitations'];
+    foreach ($invitations as $invitation) {
+        send_app_email(
+            $invitation['inviter_email'],
+            'Pozvaný rodič byl přidán do rodiny',
+            "Dobrý den,\n\nuživatel {$verifiedUser['email']} ověřil e-mail a byl přidán do rodiny {$invitation['family_name']}.\n\nPřístupy k dětem můžete upravit ve Správě rodiny:\n\n" . app_base_url() . '/?r=family'
+        );
+    }
+    audit_log('auth.email_verified', (int)$verifiedUser['id'], null, 'user', (int)$verifiedUser['id'], ['invitation_count' => count($invitations)]);
+    flash('success', 'E-mail byl ověřen.');
+    if (current_user()) {
+        redirect('dashboard');
+    }
+    redirect('login');
+}
+
+function page_register_legacy(): void
+{
+    if (current_user()) {
+        redirect('dashboard');
+    }
+
+    if (is_post()) {
+        $email = text_lower(trim($_POST['email'] ?? ''));
+        $name = trim($_POST['display_name'] ?? '');
+        $password = (string)($_POST['password'] ?? '');
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             flash('error', 'Zadejte platný e-mail.');
         } elseif (text_length($name) < 2) {
@@ -292,6 +394,9 @@ function page_register(): void
 
 function action_logout(): void
 {
+    if (!is_post()) {
+        redirect(current_user() ? 'dashboard' : 'login');
+    }
     $user = current_user();
     if ($user) {
         revoke_current_user_session((int)$user['id']);
@@ -356,14 +461,15 @@ function action_google_callback(): void
     $info = json_decode((string)curl_exec($ch), true);
     curl_close($ch);
     $googleSubject = (string)($info['sub'] ?? '');
-    if (($info['aud'] ?? '') !== cfg('google.client_id') || empty($info['email']) || $googleSubject === '') {
+    $emailVerified = filter_var($info['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    if (($info['aud'] ?? '') !== cfg('google.client_id') || empty($info['email']) || $googleSubject === '' || !$emailVerified) {
         flash('error', 'Google identitu se nepodařilo ověřit.');
         redirect('login');
     }
 
     $user = find_user_by_google_subject($googleSubject);
     if (!$user) {
-        $userId = create_user($info['email'], $info['name'] ?? $info['email'], null, $googleSubject);
+        $userId = create_user($info['email'], $info['name'] ?? $info['email'], null, $googleSubject, true);
         $invitations = accept_pending_invitations_for_user($userId, $info['email']);
         foreach ($invitations as $invitation) {
             send_app_email(
@@ -659,11 +765,11 @@ function render_ehic_menu(int $childId, array $ehic, string $returnTo): void
         <summary aria-label="EHIC">
             <span class="ehic-card-icon" aria-hidden="true"><span></span></span>
         </summary>
-        <button class="ehic-menu-backdrop" type="button" data-ehic-close onclick="this.closest('.ehic-menu').removeAttribute('open')" aria-label="Zavřít menu EHIC"></button>
+        <button class="ehic-menu-backdrop" type="button" data-ehic-close aria-label="Zavřít menu EHIC"></button>
         <div class="ehic-menu-panel">
             <div class="ehic-menu-head">
                 <strong>EHIC</strong>
-                <button class="button tiny subtle" type="button" data-ehic-close onclick="this.closest('.ehic-menu').removeAttribute('open')">Zavřít</button>
+                <button class="button tiny subtle" type="button" data-ehic-close>Zavřít</button>
             </div>
             <small><?= e(display_datetime($ehic['created_at'])) ?> · <?= e(file_size_label((int)$ehic['size_bytes'])) ?></small>
             <div class="ehic-menu-actions">
@@ -2366,6 +2472,57 @@ function action_member_add(): void
         flash('error', 'Zadejte platný e-mail.');
         redirect('family');
     }
+
+    $newUser = find_user_by_email($email);
+    if (!$newUser || !user_email_is_verified($newUser)) {
+        if (pending_family_invitation_by_email((int)$family['id'], $email)) {
+            if ($newUser && !user_email_is_verified($newUser)) {
+                send_email_verification_message((int)$newUser['id'], (string)$newUser['email'], (string)$newUser['display_name']);
+                flash('success', 'Pozvánka už čeká. Registrovanému uživateli jsme poslali nový ověřovací odkaz.');
+            } else {
+                flash('error', 'Na tento e-mail už čeká pozvánka. Pokud ji chcete poslat znovu, nejdřív ji zrušte.');
+            }
+            redirect('family');
+        }
+
+        create_family_invitation((int)$family['id'], (int)$user['id'], $email);
+        if ($newUser && !user_email_is_verified($newUser)) {
+            send_email_verification_message((int)$newUser['id'], (string)$newUser['email'], (string)$newUser['display_name']);
+        } else {
+            $registerUrl = app_base_url() . '/?r=register&email=' . urlencode($email);
+            $loginUrl = app_base_url() . '/?r=login';
+            send_app_email(
+                $email,
+                'Pozvánka do rodiny v aplikaci Zdraví dětí',
+                "Dobrý den,\n\n{$user['display_name']} vás zve do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPokud ještě nemáte účet, zaregistrujte se zde:\n{$registerUrl}\n\nPokud účet máte nebo chcete použít Google přihlášení, přihlaste se zde:\n{$loginUrl}\n\nPo ověření e-mailu budete přidáni do pozvané rodiny."
+            );
+        }
+        audit_log('family.invitation_created', (int)$user['id'], (int)$family['id'], 'family_invitation', null, ['email_hash' => hash('sha256', $email)]);
+        flash('success', 'Pozvánka byla odeslána e-mailem. Lokální kopie je ve var/mail.log.');
+        redirect('family');
+    }
+
+    add_user_to_family((int)$family['id'], (int)$newUser['id']);
+    audit_log('family.member_added', (int)$user['id'], (int)$family['id'], 'user', (int)$newUser['id']);
+    send_app_email(
+        $newUser['email'],
+        'Byli jste přidáni do rodiny',
+        "Dobrý den,\n\nbyli jste přidáni do rodiny {$family['name']} v aplikaci Zdraví dětí.\n\nPřihlášení:\n" . app_base_url() . '/?r=login'
+    );
+    flash('success', 'Rodič byl přidán do rodiny a dostal potvrzení e-mailem.');
+    redirect('family');
+}
+
+function action_member_add_legacy(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    require_owner($family);
+    $email = text_lower(trim($_POST['email'] ?? ''));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        flash('error', 'Zadejte platný e-mail.');
+        redirect('family');
+    }
     $newUser = find_user_by_email($email);
     if (!$newUser) {
         if (pending_family_invitation_by_email((int)$family['id'], $email)) {
@@ -2541,7 +2698,7 @@ function page_export(): void
                     narození <?= e(date('d.m.Y', strtotime($child['date_of_birth']))) ?>
                 </p>
             </div>
-            <button class="button primary no-print" onclick="window.print()">Uložit nebo tisknout PDF</button>
+            <button class="button primary no-print" type="button" data-print-page>Uložit nebo tisknout PDF</button>
         </section>
         <section class="panel no-print">
             <form method="get" class="form-grid export-options">

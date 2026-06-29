@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const RUNTIME_SCHEMA_VERSION = '2026-06-26-provider-search-optimization-1';
+const RUNTIME_SCHEMA_VERSION = '2026-06-29-auth-hardening-1';
 
 function ensure_runtime_schema(): void
 {
@@ -13,6 +13,7 @@ function ensure_runtime_schema(): void
     }
 
     ensure_users_email_allows_duplicates($driver);
+    ensure_users_email_verification_columns($driver);
     if ($driver === 'sqlite') {
         $columns = array_column(db()->query('PRAGMA table_info(children)')->fetchAll(), 'name');
         if (!in_array('weight_kg', $columns, true)) {
@@ -592,6 +593,51 @@ function ensure_users_email_allows_duplicates(string $driver): void
     }
 }
 
+function ensure_users_email_verification_columns(string $driver): void
+{
+    if ($driver === 'sqlite') {
+        $columns = array_column(db()->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+        $addedVerifiedAt = false;
+        foreach ([
+            'email_verified_at' => 'TEXT NULL',
+            'email_verification_token_hash' => 'TEXT NULL',
+            'email_verification_expires_at' => 'TEXT NULL',
+        ] as $column => $definition) {
+            if (!in_array($column, $columns, true)) {
+                db()->exec("ALTER TABLE users ADD COLUMN {$column} {$definition}");
+                $addedVerifiedAt = $addedVerifiedAt || $column === 'email_verified_at';
+            }
+        }
+        if ($addedVerifiedAt) {
+            db()->exec("UPDATE users SET email_verified_at = COALESCE(last_login_at, created_at, CURRENT_TIMESTAMP) WHERE is_active = 1 AND email_verified_at IS NULL");
+        }
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_users_email_verification_token ON users(email_verification_token_hash)');
+        return;
+    }
+
+    if ($driver === 'mysql') {
+        $addedVerifiedAt = false;
+        foreach ([
+            'email_verified_at' => 'DATETIME NULL AFTER google_subject_id',
+            'email_verification_token_hash' => 'CHAR(64) NULL AFTER email_verified_at',
+            'email_verification_expires_at' => 'DATETIME NULL AFTER email_verification_token_hash',
+        ] as $column => $definition) {
+            $stmt = db()->query("SHOW COLUMNS FROM users LIKE '{$column}'");
+            if (!$stmt->fetch()) {
+                db()->exec("ALTER TABLE users ADD COLUMN {$column} {$definition}");
+                $addedVerifiedAt = $addedVerifiedAt || $column === 'email_verified_at';
+            }
+        }
+        if ($addedVerifiedAt) {
+            db()->exec('UPDATE users SET email_verified_at = COALESCE(last_login_at, created_at, NOW()) WHERE is_active = 1 AND email_verified_at IS NULL');
+        }
+        $stmt = db()->query("SHOW INDEX FROM users WHERE Key_name = 'idx_users_email_verification_token'");
+        if (!$stmt->fetch()) {
+            db()->exec('CREATE INDEX idx_users_email_verification_token ON users(email_verification_token_hash)');
+        }
+    }
+}
+
 function find_user(int $id): ?array
 {
     $stmt = db()->prepare('SELECT * FROM users WHERE id = ? AND is_active = 1');
@@ -637,12 +683,75 @@ function user_owned_family_count(int $userId): int
     return (int)$stmt->fetchColumn();
 }
 
-function create_user(string $email, string $name, ?string $password, ?string $googleSubject = null): int
+function create_user(string $email, string $name, ?string $password, ?string $googleSubject = null, bool $emailVerified = false): int
 {
     $hash = $password ? password_hash($password, PASSWORD_DEFAULT) : null;
-    $stmt = db()->prepare('INSERT INTO users (email, display_name, password_hash, google_subject_id) VALUES (?, ?, ?, ?)');
-    $stmt->execute([text_lower(trim($email)), trim($name), $hash, $googleSubject]);
+    $verifiedAt = $emailVerified ? now_sql() : null;
+    $stmt = db()->prepare('INSERT INTO users (email, display_name, password_hash, google_subject_id, email_verified_at) VALUES (?, ?, ?, ?, ?)');
+    $stmt->execute([text_lower(trim($email)), trim($name), $hash, $googleSubject, $verifiedAt]);
     return (int)db()->lastInsertId();
+}
+
+function user_email_is_verified(array $user): bool
+{
+    return !empty($user['email_verified_at']);
+}
+
+function mark_user_email_verified(int $userId): void
+{
+    db()->prepare(
+        'UPDATE users
+         SET email_verified_at = COALESCE(email_verified_at, ?),
+             email_verification_token_hash = NULL,
+             email_verification_expires_at = NULL,
+             updated_at = ?
+         WHERE id = ? AND is_active = 1'
+    )->execute([now_sql(), now_sql(), $userId]);
+}
+
+function create_email_verification_token(int $userId): string
+{
+    $rawToken = bin2hex(random_bytes(32));
+    $expiresAt = (new DateTimeImmutable('+24 hours'))->format('Y-m-d H:i:s');
+    db()->prepare(
+        'UPDATE users
+         SET email_verification_token_hash = ?, email_verification_expires_at = ?, updated_at = ?
+         WHERE id = ? AND is_active = 1'
+    )->execute([hash('sha256', $rawToken), $expiresAt, now_sql(), $userId]);
+    return $rawToken;
+}
+
+function email_verification_by_token(string $token): ?array
+{
+    if ($token === '' || !preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return null;
+    }
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM users
+         WHERE email_verification_token_hash = ?
+           AND email_verification_expires_at >= ?
+           AND is_active = 1
+         LIMIT 1'
+    );
+    $stmt->execute([hash('sha256', $token), now_sql()]);
+    return $stmt->fetch() ?: null;
+}
+
+function consume_email_verification_token(string $token): ?array
+{
+    $user = email_verification_by_token($token);
+    if (!$user) {
+        return null;
+    }
+
+    mark_user_email_verified((int)$user['id']);
+    $verifiedUser = find_user((int)$user['id']);
+    if (!$verifiedUser) {
+        return null;
+    }
+    $invitations = accept_pending_invitations_for_user((int)$verifiedUser['id'], (string)$verifiedUser['email']);
+    return ['user' => $verifiedUser, 'invitations' => $invitations];
 }
 
 function delete_user_account(int $userId): void
@@ -893,7 +1002,14 @@ function pending_family_invitations(int $familyId): array
                     WHERE ru.email = fi.invited_email AND ru.is_active = 1
                     ORDER BY ru.google_subject_id IS NOT NULL DESC, ru.last_login_at DESC, ru.id DESC
                     LIMIT 1
-                ) AS registered_display_name
+                ) AS registered_display_name,
+                (
+                    SELECT ru.email_verified_at
+                    FROM users ru
+                    WHERE ru.email = fi.invited_email AND ru.is_active = 1
+                    ORDER BY ru.google_subject_id IS NOT NULL DESC, ru.last_login_at DESC, ru.id DESC
+                    LIMIT 1
+                ) AS registered_email_verified_at
          FROM family_invitations fi
          JOIN users u ON u.id = fi.invited_by_user_id
          WHERE fi.family_id = ? AND fi.accepted_at IS NULL
@@ -961,6 +1077,12 @@ function mark_invitations_registered(string $email): array
 
 function accept_pending_invitations_for_user(int $userId, string $email): array
 {
+    $user = find_user($userId);
+    if (!$user || !user_email_is_verified($user)) {
+        mark_invitations_registered($email);
+        return [];
+    }
+
     $items = pending_invitations_for_email($email);
     foreach ($items as $invitation) {
         add_user_to_family((int)$invitation['family_id'], $userId);
@@ -977,7 +1099,7 @@ function accept_registered_family_invitation(int $familyId, int $invitationId): 
         return null;
     }
     $user = find_user_by_email((string)$invitation['invited_email']);
-    if (!$user) {
+    if (!$user || !user_email_is_verified($user)) {
         return null;
     }
 
