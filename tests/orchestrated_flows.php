@@ -176,6 +176,7 @@ try {
     $medicationsPage = $owner->get('/?r=medications&q=Testmed');
     assert_contains($medicationsPage->body, 'Vyhledat v katalogu SÚKL', 'SÚKL catalog search is visible on medications page');
     assert_contains($medicationsPage->body, 'TESTMED PRO DĚTI', 'SÚKL catalog search returns matching drug');
+    assert_true(substr_count($medicationsPage->body, 'TESTMED PRO DĚTI') === 1, 'SÚKL catalog search deduplicates package sizes');
     $owner->post('/?r=sukl_medication_add', [
         'csrf' => csrf_from($medicationsPage->body),
         'sukl_code' => '9999999',
@@ -183,7 +184,15 @@ try {
     ]);
     $medicationsPage = $owner->followLastRedirect();
     assert_contains($medicationsPage->body, 'TESTMED PRO DĚTI', 'SÚKL catalog drug is added to family medications');
-    assert_true(medication_id_by_system_key($pdo, 'sukl_9999999') > 0, 'SÚKL catalog drug is stored as family medication');
+    $suklMedicationId = medication_id_by_system_key($pdo, 'sukl_9999999');
+    assert_true($suklMedicationId > 0, 'SÚKL catalog drug is stored as family medication');
+    assert_contains($medicationsPage->body, 'Doporučené dávkování není v katalogu SÚKL dostupné', 'SÚKL medication explains dosing limitation');
+    $owner->post('/?r=medication_remove', [
+        'csrf' => csrf_from($medicationsPage->body),
+        'id' => (string)$suklMedicationId,
+    ]);
+    $medicationsPage = $owner->followLastRedirect();
+    assert_not_contains($medicationsPage->body, 'TESTMED PRO DĚTI', 'removed medication disappears from family medication list');
 
     $childPage = $owner->get('/?r=child&id=' . $childOne);
     assert_all_controls($childPage->body, ['Uložit teplotu', 'Uložit lék', 'Uložit péči', 'Kontroly', 'Export pro lékaře'], 'child detail controls');
@@ -589,14 +598,15 @@ function assert_all_controls(string $html, array $labels, string $message): void
 
 function seed_sukl_catalog_for_flow(PDO $pdo): void
 {
-    $pdo->prepare(
+    $stmt = $pdo->prepare(
         'INSERT INTO sukl_drug_catalog (
             sukl_code, name, strength, dosage_form, package_text, administration_route_code, administration_route_name,
             registration_status_code, registration_status_name, atc_code, atc_name, dispensing_code, dispensing_name,
             product_type_code, product_type_name, active_substances, pil_file, pil_approved_at, spc_file, spc_approved_at,
             sukl_detail_url, source_dataset_url, source_valid_from, source_valid_to, safety_notice
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    )->execute([
+    );
+    $base = [
         '9999999',
         'TESTMED PRO DĚTI',
         '100MG/5ML',
@@ -622,7 +632,13 @@ function seed_sukl_catalog_for_flow(PDO $pdo): void
         '2026-07-01',
         '2026-07-31',
         'Ověřte dávkování v příbalové informaci/SPC a podle pokynů lékaře nebo lékárníka.',
-    ]);
+    ];
+    $stmt->execute($base);
+    $duplicatePackage = $base;
+    $duplicatePackage[0] = '9999998';
+    $duplicatePackage[4] = '1X200ML';
+    $duplicatePackage[20] = 'https://prehledy.sukl.cz/prehled_leciv.html#/leciva/9999998';
+    $stmt->execute($duplicatePackage);
 }
 
 function child_id_by_name(PDO $pdo, string $firstName): int

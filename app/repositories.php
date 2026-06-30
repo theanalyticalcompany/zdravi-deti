@@ -1315,7 +1315,7 @@ function ensure_default_medications(int $familyId): void
         'INSERT INTO medications (family_id, system_key, name, dosage_form, strength, dosing_info, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
     );
     $update = db()->prepare(
-        'UPDATE medications SET name = ?, dosage_form = ?, strength = ?, dosing_info = ?, is_active = 1 WHERE family_id = ? AND system_key = ?'
+        'UPDATE medications SET name = ?, dosage_form = ?, strength = ?, dosing_info = ? WHERE family_id = ? AND system_key = ?'
     );
 
     foreach (default_medication_rows() as $medication) {
@@ -1326,8 +1326,8 @@ function ensure_default_medications(int $familyId): void
             $insert->execute([$familyId, $medication['key'], $medication['name'], $medication['form'], $medication['strength'], $medication['info']]);
         }
     }
-    db()->prepare('UPDATE medications SET source_url = ? WHERE family_id = ? AND system_key IS NOT NULL')
-        ->execute(['https://prehledy.sukl.cz/prehled_leciv.html', $familyId]);
+    db()->prepare('UPDATE medications SET source_url = ? WHERE family_id = ? AND system_key IS NOT NULL AND system_key NOT LIKE ?')
+        ->execute(['https://prehledy.sukl.cz/prehled_leciv.html', $familyId, 'sukl_%']);
 }
 
 function update_system_record_type_names(int $familyId): void
@@ -2259,6 +2259,7 @@ function sukl_drug_catalog_search(string $query, int $limit = 30): array
     }
     $limit = max(1, min(50, $limit));
     $like = '%' . $query . '%';
+    $fetchLimit = $limit * 10;
     $stmt = db()->prepare(
         'SELECT *
          FROM sukl_drug_catalog
@@ -2276,7 +2277,7 @@ function sukl_drug_catalog_search(string $query, int $limit = 30): array
             name,
             strength,
             dosage_form
-         LIMIT ' . $limit
+         LIMIT ' . $fetchLimit
     );
     $stmt->execute([
         $like,
@@ -2287,7 +2288,7 @@ function sukl_drug_catalog_search(string $query, int $limit = 30): array
         $query . '%',
         '%' . $query . '%',
     ]);
-    return $stmt->fetchAll();
+    return deduplicate_sukl_drugs($stmt->fetchAll(), $limit);
 }
 
 function sukl_drug_catalog_by_code(string $code): ?array
@@ -2341,6 +2342,27 @@ function add_sukl_drug_to_family_medications(int $familyId, string $suklCode): ?
     return (int)db()->lastInsertId();
 }
 
+function remove_family_medication(int $familyId, int $medicationId): bool
+{
+    $stmt = db()->prepare('SELECT id, system_key FROM medications WHERE id = ? AND family_id = ? LIMIT 1');
+    $stmt->execute([$medicationId, $familyId]);
+    $medication = $stmt->fetch();
+    if (!$medication) {
+        return false;
+    }
+
+    $countStmt = db()->prepare('SELECT COUNT(*) FROM medication_administrations WHERE medication_id = ?');
+    $countStmt->execute([$medicationId]);
+    $usageCount = (int)$countStmt->fetchColumn();
+
+    if ($usageCount === 0 && empty($medication['system_key'])) {
+        db()->prepare('DELETE FROM medications WHERE id = ? AND family_id = ?')->execute([$medicationId, $familyId]);
+    } else {
+        db()->prepare('UPDATE medications SET is_active = 0 WHERE id = ? AND family_id = ?')->execute([$medicationId, $familyId]);
+    }
+    return true;
+}
+
 function sukl_drug_label(array $drug): string
 {
     return implode(' ', array_filter([
@@ -2356,7 +2378,7 @@ function sukl_drug_dosing_info(array $drug): string
     if (!empty($drug['active_substances'])) {
         $parts[] = 'Účinná látka: ' . $drug['active_substances'];
     }
-    $parts[] = 'Dávkování: Ověřte v příbalové informaci/SPC a podle pokynů lékaře nebo lékárníka.';
+    $parts[] = 'Dávkování: Doporučené dávkování není v katalogu SÚKL dostupné jako strukturovaný údaj. Ověřte ho v příbalové informaci/SPC a podle pokynů lékaře nebo lékárníka.';
     if (!empty($drug['dispensing_name'])) {
         $parts[] = 'Výdej: ' . $drug['dispensing_name'];
     }
@@ -2367,6 +2389,26 @@ function sukl_drug_dosing_info(array $drug): string
         $parts[] = $drug['safety_notice'];
     }
     return implode(' ', $parts);
+}
+
+function deduplicate_sukl_drugs(array $rows, int $limit): array
+{
+    $seen = [];
+    $deduped = [];
+    foreach ($rows as $row) {
+        $key = text_lower(trim((string)($row['name'] ?? ''))) . '|' .
+            text_lower(trim((string)($row['strength'] ?? ''))) . '|' .
+            text_lower(trim((string)($row['dosage_form'] ?? '')));
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $deduped[] = $row;
+        if (count($deduped) >= $limit) {
+            break;
+        }
+    }
+    return $deduped;
 }
 
 function escape_sql_like(string $value): string

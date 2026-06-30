@@ -52,6 +52,7 @@ function dispatch(): void
         case 'medications': page_medications(); break;
         case 'medication_save': action_medication_save(); break;
         case 'sukl_medication_add': action_sukl_medication_add(); break;
+        case 'medication_remove': action_medication_remove(); break;
         case 'medication_toggle': action_medication_toggle(); break;
         case 'care_types': page_care_types(); break;
         case 'care_type_save': action_care_type_save(); break;
@@ -2200,7 +2201,7 @@ function page_medications(): void
 {
     $user = require_login();
     $family = current_family((int)$user['id']);
-    $items = medications((int)$family['id'], false);
+    $items = medications((int)$family['id'], true);
     $query = trim((string)($_GET['q'] ?? ''));
     $catalogResults = $query !== '' ? sukl_drug_catalog_search($query, 30) : [];
     render_layout('Léčiva', function () use ($items, $query, $catalogResults) {
@@ -2260,7 +2261,7 @@ function page_medications(): void
             <h2>Moje léčiva</h2>
             <div class="list">
                 <?php foreach ($items as $item): ?>
-                    <form method="post" action="<?= e(url('medication_toggle')) ?>" class="list-row medication-row">
+                    <form method="post" action="<?= e(url('medication_remove')) ?>" class="list-row medication-row" data-confirm="Odstranit lék ze seznamu? Historické záznamy zůstanou zachované.">
                         <?= csrf_field() ?>
                         <input type="hidden" name="id" value="<?= e($item['id']) ?>">
                         <span>
@@ -2272,10 +2273,12 @@ function page_medications(): void
                                 <a href="<?= e($item['source_url']) ?>" target="_blank" rel="noopener">Příbalová informace na SÚKL</a>
                             <?php endif; ?>
                         </span>
-                        <small><?= $item['is_active'] ? 'aktivní' : 'neaktivní' ?></small>
-                        <button class="button tiny" type="submit"><?= $item['is_active'] ? 'Deaktivovat' : 'Aktivovat' ?></button>
+                        <button class="button tiny danger" type="submit">Odstranit</button>
                     </form>
                 <?php endforeach; ?>
+                <?php if (!$items): ?>
+                    <div class="empty">Zatím nemáte v seznamu žádné léčivo.</div>
+                <?php endif; ?>
             </div>
         </section>
         <?php
@@ -2314,6 +2317,25 @@ function action_sukl_medication_add(): void
         flash('success', 'Léčivo bylo přidáno do vašeho seznamu.');
     }
     redirect('medications', $redirectParams);
+}
+
+function action_medication_remove(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $medicationId = (int)($_POST['id'] ?? 0);
+    if ($medicationId <= 0) {
+        flash('error', 'Lék se nepodařilo najít.');
+        redirect('medications');
+    }
+    $removed = remove_family_medication((int)$family['id'], $medicationId);
+    if ($removed) {
+        audit_log('medication.removed', (int)$user['id'], (int)$family['id'], 'medication', $medicationId);
+        flash('success', 'Lék byl odstraněn ze seznamu.');
+    } else {
+        flash('error', 'Lék se nepodařilo odstranit.');
+    }
+    redirect('medications');
 }
 
 function action_medication_toggle(): void
