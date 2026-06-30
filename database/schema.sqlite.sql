@@ -135,6 +135,46 @@ CREATE TABLE medication_administrations (
     FOREIGN KEY (medication_id) REFERENCES medications(id)
 );
 
+CREATE TABLE sukl_drug_catalog (
+    sukl_code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    strength TEXT NULL,
+    dosage_form TEXT NULL,
+    package_text TEXT NULL,
+    administration_route_code TEXT NULL,
+    administration_route_name TEXT NULL,
+    supplement TEXT NULL,
+    holder_code TEXT NULL,
+    holder_name TEXT NULL,
+    holder_country TEXT NULL,
+    registration_number TEXT NULL,
+    registration_status_code TEXT NOT NULL,
+    registration_status_name TEXT NOT NULL,
+    valid_to TEXT NULL,
+    unlimited_registration INTEGER NOT NULL DEFAULT 0,
+    atc_code TEXT NULL,
+    atc_name TEXT NULL,
+    dispensing_code TEXT NULL,
+    dispensing_name TEXT NULL,
+    product_type_code TEXT NULL,
+    product_type_name TEXT NULL,
+    active_substances TEXT NULL,
+    pil_file TEXT NULL,
+    pil_approved_at TEXT NULL,
+    spc_file TEXT NULL,
+    spc_approved_at TEXT NULL,
+    sukl_detail_url TEXT NOT NULL,
+    source_dataset_url TEXT NOT NULL,
+    source_valid_from TEXT NULL,
+    source_valid_to TEXT NULL,
+    safety_notice TEXT NOT NULL,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_sukl_drug_catalog_name ON sukl_drug_catalog(name);
+CREATE INDEX idx_sukl_drug_catalog_atc ON sukl_drug_catalog(atc_code);
+CREATE INDEX idx_sukl_drug_catalog_active_substances ON sukl_drug_catalog(active_substances);
+
 CREATE TABLE symptom_records (
     health_record_id INTEGER PRIMARY KEY,
     symptoms TEXT NOT NULL,

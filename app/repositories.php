@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const RUNTIME_SCHEMA_VERSION = '2026-06-29-auth-hardening-1';
+const RUNTIME_SCHEMA_VERSION = '2026-06-30-sukl-catalog-1';
 
 function ensure_runtime_schema(): void
 {
@@ -188,6 +188,7 @@ function ensure_runtime_schema(): void
         );
         db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_child ON child_documents(child_id)');
         db()->exec('CREATE INDEX IF NOT EXISTS idx_child_documents_provider ON child_documents(provider_id)');
+        ensure_sukl_drug_catalog_schema($driver);
         $documentColumns = array_column(db()->query('PRAGMA table_info(child_documents)')->fetchAll(), 'name');
         foreach ([
             'document_type' => "TEXT NOT NULL DEFAULT 'general'",
@@ -432,6 +433,7 @@ function ensure_runtime_schema(): void
                 CONSTRAINT fk_child_documents_user FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+        ensure_sukl_drug_catalog_schema($driver);
         foreach ([
             'document_type' => "VARCHAR(40) NOT NULL DEFAULT 'general' AFTER note",
             'is_sensitive' => 'TINYINT(1) NOT NULL DEFAULT 0 AFTER document_type',
@@ -522,6 +524,96 @@ function runtime_schema_cache_mark_current(?string $path): void
 {
     if ($path !== null) {
         @file_put_contents($path, RUNTIME_SCHEMA_VERSION . "\n", LOCK_EX);
+    }
+}
+
+function ensure_sukl_drug_catalog_schema(string $driver): void
+{
+    if ($driver === 'sqlite') {
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS sukl_drug_catalog (
+                sukl_code TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                strength TEXT NULL,
+                dosage_form TEXT NULL,
+                package_text TEXT NULL,
+                administration_route_code TEXT NULL,
+                administration_route_name TEXT NULL,
+                supplement TEXT NULL,
+                holder_code TEXT NULL,
+                holder_name TEXT NULL,
+                holder_country TEXT NULL,
+                registration_number TEXT NULL,
+                registration_status_code TEXT NOT NULL,
+                registration_status_name TEXT NOT NULL,
+                valid_to TEXT NULL,
+                unlimited_registration INTEGER NOT NULL DEFAULT 0,
+                atc_code TEXT NULL,
+                atc_name TEXT NULL,
+                dispensing_code TEXT NULL,
+                dispensing_name TEXT NULL,
+                product_type_code TEXT NULL,
+                product_type_name TEXT NULL,
+                active_substances TEXT NULL,
+                pil_file TEXT NULL,
+                pil_approved_at TEXT NULL,
+                spc_file TEXT NULL,
+                spc_approved_at TEXT NULL,
+                sukl_detail_url TEXT NOT NULL,
+                source_dataset_url TEXT NOT NULL,
+                source_valid_from TEXT NULL,
+                source_valid_to TEXT NULL,
+                safety_notice TEXT NOT NULL,
+                imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )'
+        );
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_sukl_drug_catalog_name ON sukl_drug_catalog(name)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_sukl_drug_catalog_atc ON sukl_drug_catalog(atc_code)');
+        db()->exec('CREATE INDEX IF NOT EXISTS idx_sukl_drug_catalog_active_substances ON sukl_drug_catalog(active_substances)');
+        return;
+    }
+
+    if ($driver === 'mysql') {
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS sukl_drug_catalog (
+                sukl_code VARCHAR(20) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                strength VARCHAR(255) NULL,
+                dosage_form VARCHAR(255) NULL,
+                package_text VARCHAR(255) NULL,
+                administration_route_code VARCHAR(80) NULL,
+                administration_route_name VARCHAR(255) NULL,
+                supplement VARCHAR(255) NULL,
+                holder_code VARCHAR(80) NULL,
+                holder_name VARCHAR(255) NULL,
+                holder_country VARCHAR(80) NULL,
+                registration_number VARCHAR(120) NULL,
+                registration_status_code VARCHAR(10) NOT NULL,
+                registration_status_name VARCHAR(255) NOT NULL,
+                valid_to DATE NULL,
+                unlimited_registration TINYINT(1) NOT NULL DEFAULT 0,
+                atc_code VARCHAR(20) NULL,
+                atc_name VARCHAR(255) NULL,
+                dispensing_code VARCHAR(10) NULL,
+                dispensing_name VARCHAR(255) NULL,
+                product_type_code VARCHAR(40) NULL,
+                product_type_name VARCHAR(255) NULL,
+                active_substances TEXT NULL,
+                pil_file VARCHAR(160) NULL,
+                pil_approved_at DATE NULL,
+                spc_file VARCHAR(160) NULL,
+                spc_approved_at DATE NULL,
+                sukl_detail_url VARCHAR(500) NOT NULL,
+                source_dataset_url VARCHAR(500) NOT NULL,
+                source_valid_from DATE NULL,
+                source_valid_to DATE NULL,
+                safety_notice TEXT NOT NULL,
+                imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_sukl_drug_catalog_name (name),
+                KEY idx_sukl_drug_catalog_atc (atc_code),
+                FULLTEXT KEY ft_sukl_drug_catalog_search (name, active_substances)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
     }
 }
 

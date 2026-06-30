@@ -129,6 +129,45 @@ CREATE TABLE medication_administrations (
     CONSTRAINT fk_medication_administrations_medication FOREIGN KEY (medication_id) REFERENCES medications(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE sukl_drug_catalog (
+    sukl_code VARCHAR(20) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    strength VARCHAR(255) NULL,
+    dosage_form VARCHAR(255) NULL,
+    package_text VARCHAR(255) NULL,
+    administration_route_code VARCHAR(80) NULL,
+    administration_route_name VARCHAR(255) NULL,
+    supplement VARCHAR(255) NULL,
+    holder_code VARCHAR(80) NULL,
+    holder_name VARCHAR(255) NULL,
+    holder_country VARCHAR(80) NULL,
+    registration_number VARCHAR(120) NULL,
+    registration_status_code VARCHAR(10) NOT NULL,
+    registration_status_name VARCHAR(255) NOT NULL,
+    valid_to DATE NULL,
+    unlimited_registration TINYINT(1) NOT NULL DEFAULT 0,
+    atc_code VARCHAR(20) NULL,
+    atc_name VARCHAR(255) NULL,
+    dispensing_code VARCHAR(10) NULL,
+    dispensing_name VARCHAR(255) NULL,
+    product_type_code VARCHAR(40) NULL,
+    product_type_name VARCHAR(255) NULL,
+    active_substances TEXT NULL,
+    pil_file VARCHAR(160) NULL,
+    pil_approved_at DATE NULL,
+    spc_file VARCHAR(160) NULL,
+    spc_approved_at DATE NULL,
+    sukl_detail_url VARCHAR(500) NOT NULL,
+    source_dataset_url VARCHAR(500) NOT NULL,
+    source_valid_from DATE NULL,
+    source_valid_to DATE NULL,
+    safety_notice TEXT NOT NULL,
+    imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_sukl_drug_catalog_name (name),
+    KEY idx_sukl_drug_catalog_atc (atc_code),
+    FULLTEXT KEY ft_sukl_drug_catalog_search (name, active_substances)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE symptom_records (
     health_record_id INT UNSIGNED PRIMARY KEY,
     symptoms TEXT NOT NULL,
