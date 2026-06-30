@@ -2251,6 +2251,129 @@ function medications(int $familyId, bool $activeOnly = false): array
     return $stmt->fetchAll();
 }
 
+function sukl_drug_catalog_search(string $query, int $limit = 30): array
+{
+    $query = trim($query);
+    if (text_length($query) < 2) {
+        return [];
+    }
+    $limit = max(1, min(50, $limit));
+    $like = '%' . $query . '%';
+    $stmt = db()->prepare(
+        'SELECT *
+         FROM sukl_drug_catalog
+         WHERE sukl_code LIKE ?
+            OR name LIKE ?
+            OR active_substances LIKE ?
+            OR atc_code LIKE ?
+         ORDER BY
+            CASE
+                WHEN sukl_code = ? THEN 0
+                WHEN name LIKE ? THEN 1
+                WHEN name LIKE ? THEN 2
+                ELSE 3
+            END,
+            name,
+            strength,
+            dosage_form
+         LIMIT ' . $limit
+    );
+    $stmt->execute([
+        $like,
+        $like,
+        $like,
+        $like,
+        $query,
+        $query . '%',
+        '%' . $query . '%',
+    ]);
+    return $stmt->fetchAll();
+}
+
+function sukl_drug_catalog_by_code(string $code): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM sukl_drug_catalog WHERE sukl_code = ? LIMIT 1');
+    $stmt->execute([$code]);
+    return $stmt->fetch() ?: null;
+}
+
+function add_sukl_drug_to_family_medications(int $familyId, string $suklCode): ?int
+{
+    $drug = sukl_drug_catalog_by_code($suklCode);
+    if (!$drug) {
+        return null;
+    }
+
+    $systemKey = 'sukl_' . $drug['sukl_code'];
+    $dosingInfo = sukl_drug_dosing_info($drug);
+    $select = db()->prepare('SELECT id FROM medications WHERE family_id = ? AND system_key = ? LIMIT 1');
+    $select->execute([$familyId, $systemKey]);
+    $existingId = $select->fetchColumn();
+    if ($existingId) {
+        db()->prepare(
+            'UPDATE medications
+             SET name = ?, dosage_form = ?, strength = ?, dosing_info = ?, source_url = ?, is_active = 1
+             WHERE id = ? AND family_id = ?'
+        )->execute([
+            $drug['name'],
+            $drug['dosage_form'] ?? null,
+            $drug['strength'] ?? null,
+            $dosingInfo,
+            $drug['sukl_detail_url'],
+            (int)$existingId,
+            $familyId,
+        ]);
+        return (int)$existingId;
+    }
+
+    db()->prepare(
+        'INSERT INTO medications (family_id, system_key, name, dosage_form, strength, dosing_info, source_url, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+    )->execute([
+        $familyId,
+        $systemKey,
+        $drug['name'],
+        $drug['dosage_form'] ?? null,
+        $drug['strength'] ?? null,
+        $dosingInfo,
+        $drug['sukl_detail_url'],
+    ]);
+    return (int)db()->lastInsertId();
+}
+
+function sukl_drug_label(array $drug): string
+{
+    return implode(' ', array_filter([
+        $drug['name'] ?? '',
+        $drug['strength'] ?? '',
+        $drug['dosage_form'] ?? '',
+    ], fn($part): bool => trim((string)$part) !== ''));
+}
+
+function sukl_drug_dosing_info(array $drug): string
+{
+    $parts = [];
+    if (!empty($drug['active_substances'])) {
+        $parts[] = 'Účinná látka: ' . $drug['active_substances'];
+    }
+    $parts[] = 'Dávkování: Ověřte v příbalové informaci/SPC a podle pokynů lékaře nebo lékárníka.';
+    if (!empty($drug['dispensing_name'])) {
+        $parts[] = 'Výdej: ' . $drug['dispensing_name'];
+    }
+    if (!empty($drug['atc_code']) || !empty($drug['atc_name'])) {
+        $parts[] = 'ATC: ' . trim(($drug['atc_code'] ?? '') . ' ' . ($drug['atc_name'] ?? ''));
+    }
+    if (!empty($drug['safety_notice'])) {
+        $parts[] = $drug['safety_notice'];
+    }
+    return implode(' ', $parts);
+}
+
+function escape_sql_like(string $value): string
+{
+    return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
+}
+
 function record_types(int $familyId, ?string $kind = null, bool $activeOnly = true): array
 {
     $sql = 'SELECT * FROM record_types WHERE family_id = ?';

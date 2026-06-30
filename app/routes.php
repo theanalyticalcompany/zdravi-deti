@@ -51,6 +51,7 @@ function dispatch(): void
         case 'record_delete': action_record_delete(); break;
         case 'medications': page_medications(); break;
         case 'medication_save': action_medication_save(); break;
+        case 'sukl_medication_add': action_sukl_medication_add(); break;
         case 'medication_toggle': action_medication_toggle(); break;
         case 'care_types': page_care_types(); break;
         case 'care_type_save': action_care_type_save(); break;
@@ -2200,15 +2201,63 @@ function page_medications(): void
     $user = require_login();
     $family = current_family((int)$user['id']);
     $items = medications((int)$family['id'], false);
-    render_layout('Léčiva', function () use ($items) {
+    $query = trim((string)($_GET['q'] ?? ''));
+    $catalogResults = $query !== '' ? sukl_drug_catalog_search($query, 30) : [];
+    render_layout('Léčiva', function () use ($items, $query, $catalogResults) {
         ?>
         <div class="page-head"><h1>Léčiva</h1></div>
-        <section class="panel">
+        <section class="panel stack">
+            <h2>Vyhledat v katalogu SÚKL</h2>
+            <form method="get" class="inline-form">
+                <input type="hidden" name="r" value="medications">
+                <input name="q" value="<?= e($query) ?>" placeholder="Název léku, účinná látka nebo SÚKL kód">
+                <button class="button primary" type="submit">Vyhledat</button>
+            </form>
+            <?php if ($query !== '' && text_length($query) < 2): ?>
+                <p class="muted">Zadejte alespoň 2 znaky.</p>
+            <?php elseif ($query !== '' && !$catalogResults): ?>
+                <div class="empty">V katalogu SÚKL jsem nenašel odpovídající léčivo.</div>
+            <?php elseif ($catalogResults): ?>
+                <div class="table-wrap">
+                    <table class="compact-table">
+                        <thead><tr><th>Léčivo</th><th>Účinná látka</th><th>Výdej</th><th></th></tr></thead>
+                        <tbody>
+                        <?php foreach ($catalogResults as $drug): ?>
+                            <tr>
+                                <td>
+                                    <strong><?= e(sukl_drug_label($drug)) ?></strong>
+                                    <small><?= e($drug['sukl_code']) ?><?= !empty($drug['atc_code']) ? ' · ' . e($drug['atc_code']) : '' ?></small>
+                                    <a href="<?= e($drug['sukl_detail_url']) ?>" target="_blank" rel="noopener">Detail na SÚKL</a>
+                                </td>
+                                <td><?= e($drug['active_substances'] ?? '') ?></td>
+                                <td><?= e($drug['dispensing_name'] ?? '') ?></td>
+                                <td class="actions">
+                                    <form method="post" action="<?= e(url('sukl_medication_add')) ?>">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="sukl_code" value="<?= e($drug['sukl_code']) ?>">
+                                        <input type="hidden" name="q" value="<?= e($query) ?>">
+                                        <button class="button tiny primary" type="submit">Přidat do mých léčiv</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <section class="panel stack">
+            <h2>Ručně přidat léčivo</h2>
             <form method="post" action="<?= e(url('medication_save')) ?>" class="inline-form">
                 <?= csrf_field() ?>
                 <input required name="name" placeholder="Název léku">
                 <button class="button primary" type="submit">Přidat</button>
             </form>
+        </section>
+
+        <section class="panel">
+            <h2>Moje léčiva</h2>
             <div class="list">
                 <?php foreach ($items as $item): ?>
                     <form method="post" action="<?= e(url('medication_toggle')) ?>" class="list-row medication-row">
@@ -2244,6 +2293,27 @@ function action_medication_save(): void
         flash('success', 'Lék byl přidán.');
     }
     redirect('medications');
+}
+
+function action_sukl_medication_add(): void
+{
+    $user = require_login();
+    $family = current_family((int)$user['id']);
+    $code = trim((string)($_POST['sukl_code'] ?? ''));
+    $query = trim((string)($_POST['q'] ?? ''));
+    $redirectParams = $query !== '' ? ['q' => $query] : [];
+    if ($code === '' || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $code)) {
+        flash('error', 'Vybrané léčivo není platné.');
+        redirect('medications', $redirectParams);
+    }
+    $medicationId = add_sukl_drug_to_family_medications((int)$family['id'], $code);
+    if ($medicationId === null) {
+        flash('error', 'Léčivo se v katalogu SÚKL nepodařilo najít.');
+    } else {
+        audit_log('medication.sukl_added', (int)$user['id'], (int)$family['id'], 'medication', $medicationId, ['sukl_code' => $code]);
+        flash('success', 'Léčivo bylo přidáno do vašeho seznamu.');
+    }
+    redirect('medications', $redirectParams);
 }
 
 function action_medication_toggle(): void

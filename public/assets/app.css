@@ -452,6 +452,21 @@ textarea {
     font-weight: 700;
 }
 
+.compact-table td:first-child {
+    min-width: 12rem;
+}
+
+.compact-table td:first-child small,
+.compact-table td:first-child a {
+    display: block;
+    margin-top: .2rem;
+}
+
+.compact-table td:nth-child(2) {
+    max-width: 32rem;
+    font-size: .9rem;
+}
+
 .child-actions {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));

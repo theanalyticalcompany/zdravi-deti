@@ -50,6 +50,7 @@ $pdo = new PDO('sqlite:' . $dbPath, null, null, [
 ]);
 $pdo->exec('PRAGMA foreign_keys = ON');
 $pdo->exec((string)file_get_contents($root . '/database/schema.sqlite.sql'));
+seed_sukl_catalog_for_flow($pdo);
 
 $server = start_server($root, $port, $configPath);
 $failed = false;
@@ -171,6 +172,18 @@ try {
     ]);
     $careTypesPage = $owner->followLastRedirect();
     assert_not_contains($careTypesPage->body, 'Koupel', 'unused custom care type can be deleted');
+
+    $medicationsPage = $owner->get('/?r=medications&q=Testmed');
+    assert_contains($medicationsPage->body, 'Vyhledat v katalogu SÚKL', 'SÚKL catalog search is visible on medications page');
+    assert_contains($medicationsPage->body, 'TESTMED PRO DĚTI', 'SÚKL catalog search returns matching drug');
+    $owner->post('/?r=sukl_medication_add', [
+        'csrf' => csrf_from($medicationsPage->body),
+        'sukl_code' => '9999999',
+        'q' => 'Testmed',
+    ]);
+    $medicationsPage = $owner->followLastRedirect();
+    assert_contains($medicationsPage->body, 'TESTMED PRO DĚTI', 'SÚKL catalog drug is added to family medications');
+    assert_true(medication_id_by_system_key($pdo, 'sukl_9999999') > 0, 'SÚKL catalog drug is stored as family medication');
 
     $childPage = $owner->get('/?r=child&id=' . $childOne);
     assert_all_controls($childPage->body, ['Uložit teplotu', 'Uložit lék', 'Uložit péči', 'Kontroly', 'Export pro lékaře'], 'child detail controls');
@@ -574,6 +587,44 @@ function assert_all_controls(string $html, array $labels, string $message): void
     }
 }
 
+function seed_sukl_catalog_for_flow(PDO $pdo): void
+{
+    $pdo->prepare(
+        'INSERT INTO sukl_drug_catalog (
+            sukl_code, name, strength, dosage_form, package_text, administration_route_code, administration_route_name,
+            registration_status_code, registration_status_name, atc_code, atc_name, dispensing_code, dispensing_name,
+            product_type_code, product_type_name, active_substances, pil_file, pil_approved_at, spc_file, spc_approved_at,
+            sukl_detail_url, source_dataset_url, source_valid_from, source_valid_to, safety_notice
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([
+        '9999999',
+        'TESTMED PRO DĚTI',
+        '100MG/5ML',
+        'Perorální suspenze',
+        '1X100ML',
+        'POR',
+        'Perorální podání',
+        'R',
+        'registrovaný léčivý přípravek',
+        'N02BE01',
+        'PARACETAMOL',
+        'F',
+        'volně prodejné léčivé přípravky',
+        'CH',
+        'Chemické léčivé přípravky',
+        'PARACETAMOL 100 MG',
+        'PI999999.pdf',
+        '2026-06-30',
+        'SPC999999.pdf',
+        '2026-06-30',
+        'https://prehledy.sukl.cz/prehled_leciv.html#/leciva/9999999',
+        'https://opendata.sukl.cz/soubory/SOD20260630/DLP20260630.zip',
+        '2026-07-01',
+        '2026-07-31',
+        'Ověřte dávkování v příbalové informaci/SPC a podle pokynů lékaře nebo lékárníka.',
+    ]);
+}
+
 function child_id_by_name(PDO $pdo, string $firstName): int
 {
     $stmt = $pdo->prepare('SELECT id FROM children WHERE first_name = ? ORDER BY id DESC LIMIT 1');
@@ -610,6 +661,13 @@ function latest_email_verification_token_from_mail(string $root, string $email):
 function first_medication_id(PDO $pdo): int
 {
     return (int)$pdo->query('SELECT id FROM medications WHERE is_active = 1 ORDER BY id LIMIT 1')->fetchColumn();
+}
+
+function medication_id_by_system_key(PDO $pdo, string $systemKey): int
+{
+    $stmt = $pdo->prepare('SELECT id FROM medications WHERE system_key = ? ORDER BY id DESC LIMIT 1');
+    $stmt->execute([$systemKey]);
+    return (int)$stmt->fetchColumn();
 }
 
 function first_care_type_id(PDO $pdo): int
