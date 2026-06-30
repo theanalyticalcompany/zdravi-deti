@@ -1450,16 +1450,17 @@ function action_document_upload(): void
 
         $originalName = trim((string)($file['name'] ?? 'dokument'));
         $extension = text_lower((string)pathinfo($originalName, PATHINFO_EXTENSION));
-        $allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'doc', 'docx', 'txt'];
-        if (!in_array($extension, $allowedExtensions, true)) {
+        if (!in_array($extension, document_allowed_upload_extensions(), true)) {
             throw new InvalidArgumentException('Povolené jsou soubory PDF, obrázky včetně HEIC/HEIF, DOC/DOCX a TXT.');
         }
+        document_validate_upload_name($originalName);
 
         $mimeType = null;
         if (class_exists('finfo')) {
             $finfo = new finfo(FILEINFO_MIME_TYPE);
             $mimeType = $finfo->file((string)$file['tmp_name']) ?: null;
         }
+        document_validate_upload_content((string)$file['tmp_name'], $extension, $mimeType);
 
         $uploadDir = document_upload_root();
         if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
@@ -1589,6 +1590,113 @@ function audit_sensitive_document_view(array $document, int $userId): void
     }
 }
 
+function document_allowed_upload_extensions(): array
+{
+    return ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'doc', 'docx', 'txt'];
+}
+
+function document_allowed_mime_types(string $extension): array
+{
+    return [
+        'pdf' => ['application/pdf', 'application/x-pdf'],
+        'jpg' => ['image/jpeg'],
+        'jpeg' => ['image/jpeg'],
+        'png' => ['image/png'],
+        'webp' => ['image/webp'],
+        'gif' => ['image/gif'],
+        'heic' => ['image/heic', 'image/heic-sequence', 'image/heif', 'image/heif-sequence', 'application/octet-stream'],
+        'heif' => ['image/heif', 'image/heif-sequence', 'image/heic', 'image/heic-sequence', 'application/octet-stream'],
+        'doc' => ['application/msword', 'application/vnd.ms-office', 'application/octet-stream'],
+        'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
+        'txt' => ['text/plain'],
+    ][$extension] ?? [];
+}
+
+function document_validate_upload_name(string $originalName): void
+{
+    if ($originalName === '' || preg_match('/[\x00-\x1F\x7F]/', $originalName)) {
+        throw new InvalidArgumentException('Název souboru není platný.');
+    }
+    if (str_contains($originalName, '/') || str_contains($originalName, '\\') || str_contains($originalName, '..')) {
+        throw new InvalidArgumentException('Název souboru nesmí obsahovat cestu.');
+    }
+    if (preg_match('/(^|\.)(php\d*|phtml|phar|cgi|pl|py|rb|asp|aspx|jsp|jspx|sh|bash|bat|cmd|exe|dll|msi|com|scr|jar|war)(\.|$)/i', $originalName)) {
+        throw new InvalidArgumentException('Soubor má rizikovou nebo spustitelnou příponu.');
+    }
+}
+
+function document_validate_upload_content(string $tmpPath, string $extension, ?string $mimeType): void
+{
+    $mimeType = strtolower(trim(explode(';', (string)$mimeType)[0]));
+    if ($mimeType !== '' && !in_array($mimeType, document_allowed_mime_types($extension), true)) {
+        throw new InvalidArgumentException('Typ souboru neodpovídá příponě.');
+    }
+
+    $prefix = file_get_contents($tmpPath, false, null, 0, 1024 * 1024);
+    if ($prefix === false || $prefix === '') {
+        throw new InvalidArgumentException('Soubor se nepodařilo zkontrolovat.');
+    }
+    $lowerPrefix = strtolower($prefix);
+    if (document_contains_blocked_payload($lowerPrefix)) {
+        throw new InvalidArgumentException('Soubor obsahuje aktivní nebo rizikový obsah.');
+    }
+
+    $isZip = str_starts_with($prefix, "PK\x03\x04") || str_starts_with($prefix, "PK\x05\x06") || str_starts_with($prefix, "PK\x07\x08");
+    $checks = [
+        'pdf' => fn(): bool => str_starts_with($prefix, '%PDF-') && !str_contains($lowerPrefix, '/javascript') && !preg_match('/\/js\b/', $lowerPrefix),
+        'jpg' => fn(): bool => str_starts_with($prefix, "\xFF\xD8\xFF"),
+        'jpeg' => fn(): bool => str_starts_with($prefix, "\xFF\xD8\xFF"),
+        'png' => fn(): bool => str_starts_with($prefix, "\x89PNG\r\n\x1A\n"),
+        'webp' => fn(): bool => str_starts_with($prefix, 'RIFF') && substr($prefix, 8, 4) === 'WEBP',
+        'gif' => fn(): bool => str_starts_with($prefix, 'GIF87a') || str_starts_with($prefix, 'GIF89a'),
+        'heic' => fn(): bool => document_has_heif_brand($prefix),
+        'heif' => fn(): bool => document_has_heif_brand($prefix),
+        'doc' => fn(): bool => str_starts_with($prefix, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
+        'docx' => fn(): bool => $isZip && document_docx_structure_is_valid($tmpPath),
+        'txt' => fn(): bool => !str_contains($prefix, "\x00"),
+    ];
+    if (isset($checks[$extension]) && !$checks[$extension]()) {
+        throw new InvalidArgumentException('Obsah souboru neodpovídá deklarovanému typu.');
+    }
+}
+
+function document_contains_blocked_payload(string $lowerPrefix): bool
+{
+    foreach (['<?php', '<?= ', '<script', '<html', '<svg', 'javascript:', 'vbscript:', '<?xml-stylesheet', 'x5o!p%@ap[4\\pzx54(p^)7cc)7}$eicar'] as $needle) {
+        if (str_contains($lowerPrefix, $needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function document_has_heif_brand(string $prefix): bool
+{
+    if (strlen($prefix) < 12 || substr($prefix, 4, 4) !== 'ftyp') {
+        return false;
+    }
+    foreach (['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'] as $brand) {
+        if (str_contains(substr($prefix, 8, 64), $brand)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function document_docx_structure_is_valid(string $tmpPath): bool
+{
+    if (!class_exists('ZipArchive')) {
+        return true;
+    }
+    $zip = new ZipArchive();
+    if ($zip->open($tmpPath) !== true) {
+        return false;
+    }
+    $valid = $zip->locateName('[Content_Types].xml') !== false && $zip->locateName('word/document.xml') !== false;
+    $zip->close();
+    return $valid;
+}
+
 function document_response_mime_type(array $document): string
 {
     $mimeType = (string)($document['mime_type'] ?? '');
@@ -1622,6 +1730,10 @@ function document_can_inline_preview(array $document, string $mimeType): bool
 function send_document_file(array $document, string $path, string $disposition): void
 {
     $mimeType = document_response_mime_type($document);
+    if ($disposition === 'inline' && !document_can_inline_preview($document, $mimeType)) {
+        $disposition = 'attachment';
+        $mimeType = 'application/octet-stream';
+    }
     $contents = file_get_contents($path);
     if ($contents === false) {
         throw new RuntimeException('Soubor se nepodařilo načíst.');
@@ -1629,9 +1741,16 @@ function send_document_file(array $document, string $path, string $disposition):
     $contents = document_decrypt_bytes($contents);
     header('Content-Type: ' . $mimeType);
     header('Content-Length: ' . strlen($contents));
-    header('Content-Disposition: ' . $disposition . '; filename="' . addcslashes((string)$document['original_filename'], "\\\"") . '"');
+    header('Content-Disposition: ' . $disposition . '; filename="' . document_header_filename((string)$document['original_filename']) . '"');
     echo $contents;
     exit;
+}
+
+function document_header_filename(string $filename): string
+{
+    $filename = preg_replace('/[\r\n\x00-\x1F\x7F"\\\\]+/', '_', basename($filename)) ?? 'document';
+    $filename = trim($filename, '._ ');
+    return addcslashes($filename !== '' ? $filename : 'document', '"\\');
 }
 
 function action_document_delete(): void

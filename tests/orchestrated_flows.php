@@ -225,7 +225,7 @@ try {
     $documentUploadBlock = extract_between($documentsPage->body, '<h3>Nahrát nový dokument</h3>', '</section>');
     assert_not_contains($documentUploadBlock, 'name="provider_id"', 'child documentation no longer contains provider selection');
     $heicPath = $tmpDir . '/mobilni-fotka.heic';
-    file_put_contents($heicPath, 'fake heic payload');
+    file_put_contents($heicPath, "\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1");
     $owner->multipart('/?r=document_upload', [
         'csrf' => csrf_from($documentsPage->body),
         'child_id' => (string)$childOne,

@@ -89,6 +89,15 @@ try {
     assert_status($badLoginResponse, 200, 'wrong password stays on login page');
     assert_redirect_to_login($badLogin->get('/?r=dashboard'), 'wrong password does not create session');
     assert_true(count_rows("SELECT COUNT(*) FROM audit_logs WHERE action = 'auth.login_failed'") >= 1, 'wrong password is audited');
+    $sqliLogin = new TestClient($baseUrl);
+    $sqliLoginPage = $sqliLogin->get('/?r=login');
+    $sqliLoginResponse = $sqliLogin->post('/?r=login', [
+        'csrf' => csrf_from($sqliLoginPage->body),
+        'email' => "' OR 1=1 --",
+        'password' => "' OR 1=1 --",
+    ]);
+    assert_status($sqliLoginResponse, 200, 'SQLi login payload is rejected');
+    assert_redirect_to_login($sqliLogin->get('/?r=dashboard'), 'SQLi login payload does not create session');
 
     $rateLimited = new TestClient($baseUrl);
     $ratePage = $rateLimited->get('/?r=login');
@@ -167,6 +176,10 @@ try {
     ] as $path) {
         assert_redirect_to_login($anon->get($path), 'anonymous document route requires login: ' . $path);
     }
+    $textInline = $ownerA->get('/?r=document_inline&id=' . $fixture['document_a_id']);
+    assert_status($textInline, 200, 'text document inline route returns file');
+    assert_header_contains($textInline, 'content-disposition', 'attachment', 'non-preview text document is forced to attachment');
+    assert_header_contains($textInline, 'content-type', 'application/octet-stream', 'non-preview text document is served as octet-stream inline fallback');
 
     $familyCountBefore = count_rows('SELECT COUNT(*) FROM families WHERE id = ?', [$fixture['family_a_id']]);
     $parentFamilyPage = $parentA->get('/?r=family');
@@ -212,6 +225,9 @@ try {
     assert_same($tempCount, count_rows('SELECT COUNT(*) FROM health_records WHERE child_id = ?', [$fixture['child_a1_id']]), 'foreign temperature creates no record');
 
     $ownerAChild = $ownerA->get('/?r=child&id=' . $fixture['child_a1_id']);
+    $doctorSearchPayload = $ownerA->get('/?r=child_doctors&child_id=' . $fixture['child_a1_id'] . '&q=' . urlencode("' OR 1=1 --"));
+    assert_status($doctorSearchPayload, 200, 'SQLi provider search payload returns safe page');
+    assert_not_contains($doctorSearchPayload->body, 'Safe Provider Injection Test', 'SQLi provider search does not return all providers');
     $recordCountBefore = count_rows('SELECT COUNT(*) FROM health_records WHERE child_id = ?', [$fixture['child_a1_id']]);
     $invalidTemperature = $ownerA->post('/?r=temperature_save', [
         'csrf' => csrf_from($ownerAChild->body),
@@ -277,6 +293,46 @@ try {
         'document_type' => 'general',
     ], ['document_file' => $badUpload]), 302, 'disallowed upload extension redirects safely');
     assert_same($docCountBefore, count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]), 'disallowed upload creates no document');
+    $doubleExtensionUpload = $tmpDir . '/shell.php.jpg';
+    file_put_contents($doubleExtensionUpload, "\xFF\xD8\xFF\xE0" . str_repeat('A', 32));
+    assert_status($ownerA->multipart('/?r=document_upload', [
+        'csrf' => csrf_from($ownerAChild->body),
+        'child_id' => (string)$fixture['child_a1_id'],
+        'title' => 'Double extension upload',
+        'document_type' => 'general',
+    ], ['document_file' => $doubleExtensionUpload]), 302, 'double executable extension upload redirects safely');
+    assert_same($docCountBefore, count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]), 'double executable extension creates no document');
+    $fakePdfUpload = $tmpDir . '/fake.pdf';
+    file_put_contents($fakePdfUpload, "<html><script>alert(1)</script></html>");
+    assert_status($ownerA->multipart('/?r=document_upload', [
+        'csrf' => csrf_from($ownerAChild->body),
+        'child_id' => (string)$fixture['child_a1_id'],
+        'title' => 'Fake PDF upload',
+        'document_type' => 'general',
+    ], ['document_file' => $fakePdfUpload]), 302, 'fake PDF upload redirects safely');
+    assert_same($docCountBefore, count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]), 'fake PDF creates no document');
+    $eicarUpload = $tmpDir . '/eicar.txt';
+    file_put_contents($eicarUpload, 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*');
+    assert_throws(fn() => document_validate_upload_content($eicarUpload, 'txt', 'text/plain'), 'EICAR-like content is rejected by validator');
+    assert_same($docCountBefore, count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]), 'EICAR-like validation creates no document');
+    assert_throws(fn() => document_validate_upload_name('../safe.txt'), 'path traversal upload name is rejected by validator');
+    assert_throws(fn() => document_validate_upload_name('safe..txt'), 'dot-dot upload name is rejected by validator');
+    assert_same($docCountBefore, count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]), 'path traversal validation creates no document');
+
+    $xssTitleUpload = $tmpDir . '/plain.txt';
+    file_put_contents($xssTitleUpload, 'plain text');
+    assert_status($ownerA->multipart('/?r=document_upload', [
+        'csrf' => csrf_from($ownerAChild->body),
+        'child_id' => (string)$fixture['child_a1_id'],
+        'title' => '<script>alert(1)</script>',
+        'document_type' => 'general',
+    ], ['document_file' => $xssTitleUpload]), 302, 'plain text upload with XSS title redirects safely');
+    $xssDocumentId = latest_document_id($fixture['child_a1_id']);
+    $xssDocumentView = $ownerA->get('/?r=document_view&id=' . $xssDocumentId);
+    assert_status($xssDocumentView, 200, 'document with XSS title can be opened safely');
+    assert_not_contains($xssDocumentView->body, '<script>alert(1)</script>', 'document title is escaped and not rendered as script');
+    assert_contains($xssDocumentView->body, '&lt;script&gt;alert(1)&lt;/script&gt;', 'document title is rendered escaped');
+    $docCountBefore = count_rows('SELECT COUNT(*) FROM child_documents WHERE child_id = ?', [$fixture['child_a1_id']]);
 
     $txtUpload = $tmpDir . '/note.txt';
     file_put_contents($txtUpload, 'valid text but wrong child');
@@ -384,6 +440,17 @@ function seed_negative_fixture(string $root, string $uploadPrefix): array
     write_uploaded_test_file($root, $documentBPath, 'document B');
     $documentAId = create_child_document($childA1Id, $ownerAId, 'Document A', '', null, 'doc-a.txt', $documentAPath, 'text/plain', 10);
     $documentBId = create_child_document($childBId, $ownerBId, 'Document B', '', null, 'doc-b.txt', $documentBPath, 'text/plain', 10);
+    import_nrpzs_provider_row([
+        'MistoPoskytovaniId' => 'negative-provider-1',
+        'NazevCely' => 'Safe Provider Injection Test',
+        'PoskytovatelNazev' => 'Safe Provider Injection Test s.r.o.',
+        'OborPece' => 'praktické lékařství pro děti a dorost',
+        'Obec' => 'Praha',
+        'Ulice' => 'Bezpecna',
+        'CisloDomovniOrientacni' => '1',
+        'Okres' => 'Praha',
+        'LastModified' => '2026-01-01 00:00:00',
+    ]);
 
     $appointmentAId = save_child_appointment($childA1Id, $ownerAId, null, [
         'title' => 'Existing appointment',
@@ -529,6 +596,13 @@ function latest_appointment_id(int $childId): int
     return (int)$stmt->fetchColumn();
 }
 
+function latest_document_id(int $childId): int
+{
+    $stmt = db()->prepare('SELECT id FROM child_documents WHERE child_id = ? ORDER BY id DESC LIMIT 1');
+    $stmt->execute([$childId]);
+    return (int)$stmt->fetchColumn();
+}
+
 function is_family_member(int $familyId, int $userId): bool
 {
     return count_rows('SELECT COUNT(*) FROM family_members WHERE family_id = ? AND user_id = ?', [$familyId, $userId]) === 1;
@@ -568,7 +642,11 @@ final class TestClient
     {
         $fields = normalize_fields($fields);
         foreach ($files as $name => $filePath) {
-            $fields[$name] = new CURLFile($filePath);
+            if (is_array($filePath)) {
+                $fields[$name] = new CURLFile((string)$filePath['path'], (string)($filePath['mime'] ?? ''), (string)($filePath['name'] ?? basename((string)$filePath['path'])));
+            } else {
+                $fields[$name] = new CURLFile($filePath);
+            }
         }
         return $this->request('POST', $path, $fields);
     }
@@ -739,6 +817,16 @@ function assert_same($expected, $actual, string $message): void
     assert_true($expected === $actual, $message . ' (expected ' . var_export($expected, true) . ', got ' . var_export($actual, true) . ')');
 }
 
+function assert_throws(callable $callback, string $message): void
+{
+    try {
+        $callback();
+    } catch (Throwable $e) {
+        return;
+    }
+    throw new RuntimeException('FAIL: ' . $message);
+}
+
 function assert_status(TestResponse $response, int $status, string $message): void
 {
     assert_true($response->status === $status, $message . ' (status ' . $response->status . ')');
@@ -753,6 +841,16 @@ function assert_redirect(TestResponse $response, string $location, string $messa
 function assert_redirect_to_login(TestResponse $response, string $message): void
 {
     assert_redirect($response, '?r=login', $message);
+}
+
+function assert_contains(string $haystack, string $needle, string $message): void
+{
+    assert_true(strpos($haystack, $needle) !== false, $message);
+}
+
+function assert_not_contains(string $haystack, string $needle, string $message): void
+{
+    assert_true(strpos($haystack, $needle) === false, $message);
 }
 
 function assert_header_contains(TestResponse $response, string $header, string $needle, string $message): void
