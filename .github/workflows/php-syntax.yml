@@ -30,3 +30,6 @@ jobs:
 
       - name: Orchestrated UI flow test
         run: php tests/orchestrated_flows.php
+
+      - name: Security negative flow test
+        run: php tests/security_negative_flows.php

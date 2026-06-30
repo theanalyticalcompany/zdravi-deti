@@ -4,6 +4,11 @@ Tento seznam mapuje hlavní grafické ovládací prvky na testovací scénáře.
 
 ## Automatizované průchody
 
+### TC-SEC-NEG-001 Negativní bezpečnostní průchod
+- Ovládací prvky a routy: login, registrace, logout, správa rodiny, přístupy, detail dítěte, záznamy, dokumenty, EHIC, kontroly, export.
+- Krytí: `tests/security_negative_flows.php`.
+- Ověření: neplatné heslo, rate limit, chybějící CSRF, cizí `child_id`, `record_id`, `document_id`, `appointment_id`, `invitation_id`, cizí lék/typ péče a nepovolený upload neprovedou stavovou změnu.
+
 ### TC-FLOW-001 Nová rodina a administrátor
 - Ovládací prvky: `Vytvořit účet`, `Správa rodiny`, `Přidat dítě`, `Uložit`, `Zrušit rodinu`.
 - Krytí: `tests/orchestrated_flows.php`.

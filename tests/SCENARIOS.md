@@ -4,6 +4,7 @@ Spustitelné kontroly:
 
 - `php tests/smoke.php` ověřuje doménovou logiku, databázi, šifrování dokumentů, pozvánky, přístupy, import lékařů a základní CRUD operace.
 - `php tests/orchestrated_flows.php` spouští lokální webovou aplikaci nad dočasnou SQLite databází a prochází klíčové UI/HTTP flow.
+- `php tests/security_negative_flows.php` spouští lokální webovou aplikaci nad dočasnou SQLite databází a ověřuje akce, které nesmí projít: špatné přihlášení, CSRF, IDOR, cizí rodiny, cizí děti, dokumenty, záznamy, pozvánky a nepovolené uploady.
 - `tests/UI_TEST_MATRIX.md` mapuje tlačítka a odkazy na test case.
 
 ## TC-01 Registrace a založení rodiny
