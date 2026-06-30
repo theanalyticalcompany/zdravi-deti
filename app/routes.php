@@ -5,6 +5,7 @@ declare(strict_types=1);
 function dispatch(): void
 {
     send_security_headers();
+    validate_http_request();
     $route = $_GET['r'] ?? 'dashboard';
 
     if (is_post()) {

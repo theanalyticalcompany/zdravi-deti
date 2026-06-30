@@ -143,6 +143,14 @@ try {
     assert_header_contains($loginHeaders, 'content-security-policy', "script-src 'self'", 'CSP is present locally');
     assert_header_not_contains($loginHeaders, 'content-security-policy', 'unsafe-inline', 'CSP does not allow unsafe-inline');
 
+    assert_status($anon->raw('PUT', '/?r=login'), 405, 'unsupported HTTP method is rejected before routing');
+    assert_status($anon->raw('POST', '/?r=login', '{"email":"owner.a@example.test"}', ['Content-Type: application/json']), 415, 'unsupported POST content type is rejected');
+    assert_status($anon->get('/?r=' . urlencode('<script>')), 400, 'invalid route parameter is rejected');
+    assert_status($anon->get('/?r=login&bad-name=1'), 400, 'invalid query parameter name is rejected');
+    assert_status($anon->get('/?r=child&id=' . str_repeat('1', 2100)), 400, 'overlong query parameter value is rejected');
+    assert_status($anon->raw('GET', '/?r=login', '', ['X-Long-Test: ' . str_repeat('a', 5000)]), 400, 'overlong HTTP header is rejected');
+    assert_true(count_rows("SELECT COUNT(*) FROM audit_logs WHERE action = 'security.request_rejected'") >= 6, 'rejected HTTP requests are audited');
+
     $tempCount = count_rows('SELECT COUNT(*) FROM health_records WHERE child_id = ?', [$fixture['child_a1_id']]);
     $noCsrfTemperature = $ownerA->post('/?r=temperature_save', [
         'child_id' => (string)$fixture['child_a1_id'],
@@ -651,6 +659,11 @@ final class TestClient
         return $this->request('POST', $path, $fields);
     }
 
+    public function raw(string $method, string $path, string $body = '', array $headers = []): TestResponse
+    {
+        return $this->request($method, $path, $body, $headers);
+    }
+
     public function followLastRedirect(): TestResponse
     {
         assert_true($this->lastLocation !== null, 'last response has redirect');
@@ -661,18 +674,25 @@ final class TestClient
         return $this->get($location);
     }
 
-    private function request(string $method, string $path, array $fields = []): TestResponse
+    private function request(string $method, string $path, array|string $fields = [], array $headers = []): TestResponse
     {
         $ch = curl_init($this->baseUrl . $path);
+        $httpHeaders = $headers;
+        $cookieHeader = $this->cookieHeader();
+        if ($cookieHeader !== '') {
+            $httpHeaders[] = 'Cookie: ' . $cookieHeader;
+        }
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CUSTOMREQUEST => $method,
-            CURLOPT_COOKIE => $this->cookieHeader(),
             CURLOPT_TIMEOUT => 10,
         ]);
-        if ($method === 'POST') {
+        if ($httpHeaders) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $httpHeaders);
+        }
+        if ($method === 'POST' || !is_array($fields)) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
         }
         $raw = curl_exec($ch);

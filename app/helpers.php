@@ -98,6 +98,150 @@ function send_security_headers(): void
     header("Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'");
 }
 
+function validate_http_request(): void
+{
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if (!in_array($method, ['GET', 'POST', 'HEAD'], true)) {
+        reject_http_request(405, 'Nepovolena metoda pozadavku.', ['Allow: GET, POST, HEAD'], 'method');
+    }
+
+    $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    if ($requestUri !== '' && !request_text_is_safe($requestUri, 4096, false)) {
+        reject_http_request(414, 'URL pozadavku je neplatna nebo prilis dlouha.', [], 'request_uri');
+    }
+
+    $queryString = (string)($_SERVER['QUERY_STRING'] ?? '');
+    if ($queryString !== '' && !request_text_is_safe($queryString, 4096, false)) {
+        reject_http_request(414, 'Parametry v URL jsou neplatne nebo prilis dlouhe.', [], 'query_string');
+    }
+
+    validate_http_headers();
+    validate_http_parameters($_GET, 'GET', 0);
+
+    if (isset($_GET['r']) && (!is_string($_GET['r']) || !preg_match('/^[a-z_]{1,80}$/', $_GET['r']))) {
+        reject_http_request(400, 'Pozadavek neni platny.', [], 'route');
+    }
+
+    if ($method === 'POST') {
+        validate_post_content_type();
+        validate_content_length();
+        validate_http_parameters($_POST, 'POST', 0);
+    }
+}
+
+function validate_http_headers(): void
+{
+    foreach ($_SERVER as $key => $value) {
+        if (strpos((string)$key, 'HTTP_') !== 0 && !in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH'], true)) {
+            continue;
+        }
+        if (!is_string($value) && !is_numeric($value)) {
+            reject_http_request(400, 'Pozadavek obsahuje neplatnou hlavicku.', [], 'header_type');
+        }
+        $name = strtoupper((string)$key);
+        $limit = $name === 'HTTP_COOKIE' ? 8192 : 4096;
+        if (!request_text_is_safe((string)$value, $limit, true)) {
+            reject_http_request(400, 'Pozadavek obsahuje neplatnou hlavicku.', [], 'header_value');
+        }
+    }
+
+    $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+    if ($host !== '' && (strlen($host) > 255 || !preg_match('/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/', $host))) {
+        reject_http_request(400, 'Pozadavek obsahuje neplatnou hlavicku Host.', [], 'host');
+    }
+}
+
+function validate_post_content_type(): void
+{
+    $contentType = strtolower(trim((string)($_SERVER['CONTENT_TYPE'] ?? '')));
+    if ($contentType === '') {
+        return;
+    }
+    $contentType = trim(explode(';', $contentType, 2)[0]);
+    if (!in_array($contentType, ['application/x-www-form-urlencoded', 'multipart/form-data'], true)) {
+        reject_http_request(415, 'Nepodporovany typ pozadavku.', [], 'content_type');
+    }
+}
+
+function validate_content_length(): void
+{
+    $raw = (string)($_SERVER['CONTENT_LENGTH'] ?? '');
+    if ($raw === '') {
+        return;
+    }
+    if (!ctype_digit($raw)) {
+        reject_http_request(400, 'Neplatna delka pozadavku.', [], 'content_length');
+    }
+    if ((int)$raw > 32 * 1024 * 1024) {
+        reject_http_request(413, 'Pozadavek je prilis velky.', [], 'content_length');
+    }
+}
+
+function validate_http_parameters(array $params, string $source, int $depth): void
+{
+    if ($depth > 4) {
+        reject_http_request(400, 'Pozadavek ma prilis hlubokou strukturu parametru.', [], 'param_depth');
+    }
+    if (count($params) > 200) {
+        reject_http_request(400, 'Pozadavek obsahuje prilis mnoho parametru.', [], 'param_count');
+    }
+
+    foreach ($params as $key => $value) {
+        if (!is_int($key) && (!is_string($key) || !preg_match('/^[A-Za-z0-9_]{1,80}$/', $key))) {
+            reject_http_request(400, 'Pozadavek obsahuje neplatny nazev parametru.', [], 'param_name');
+        }
+        if (is_array($value)) {
+            validate_http_parameters($value, $source, $depth + 1);
+            continue;
+        }
+        if (!is_string($value) && !is_numeric($value) && !is_bool($value)) {
+            reject_http_request(400, 'Pozadavek obsahuje neplatnou hodnotu parametru.', [], 'param_type');
+        }
+        $limit = $source === 'GET' ? 2000 : 20000;
+        if (!request_text_is_safe((string)$value, $limit, false)) {
+            reject_http_request(400, 'Pozadavek obsahuje neplatnou hodnotu parametru.', [], 'param_value');
+        }
+    }
+}
+
+function request_text_is_safe(string $value, int $maxBytes, bool $isHeader): bool
+{
+    if (strlen($value) > $maxBytes) {
+        return false;
+    }
+    if (strpos($value, "\0") !== false) {
+        return false;
+    }
+    $pattern = $isHeader ? '/[\x00-\x08\x0A-\x1F\x7F]/' : '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/';
+    return preg_match($pattern, $value) !== 1;
+}
+
+function reject_http_request(int $status, string $message, array $headers = [], string $reason = ''): void
+{
+    foreach ($headers as $header) {
+        header($header);
+    }
+    http_response_code($status);
+    audit_rejected_http_request($status, $reason);
+    echo $message;
+    exit;
+}
+
+function audit_rejected_http_request(int $status, string $reason): void
+{
+    try {
+        $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+        audit_log('security.request_rejected', $userId, null, 'http_request', null, [
+            'status' => $status,
+            'reason' => $reason,
+            'method' => (string)($_SERVER['REQUEST_METHOD'] ?? ''),
+            'route' => is_string($_GET['r'] ?? null) ? (string)$_GET['r'] : null,
+        ]);
+    } catch (Throwable $e) {
+        error_log('Rejected request audit failed: ' . $e->getMessage());
+    }
+}
+
 function request_is_https(): bool
 {
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
